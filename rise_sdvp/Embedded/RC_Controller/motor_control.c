@@ -58,7 +58,59 @@ void motor_set_mode(int _mode) {
 }
 
 // Initialize motor control system
+// Provsnurr från Robotstyrnings skanning: en VESC på fast duty en kort stund,
+// sedan stopp. Styrkortet stoppar själv, även om länken tappas mitt i.
+// Maskinen ska vara upphissad.
+#define TEST_SPIN_DUTY		0.3
+#define TEST_SPIN_MS		500
+
+static THD_WORKING_AREA(test_spin_thread_wa, 512);
+static binary_semaphore_t m_test_spin_sem;
+static volatile int m_test_spin_id = -1; // -1 = inget provsnurr pågår
+
+static THD_FUNCTION(test_spin_thread, arg) {
+	(void)arg;
+	chRegSetThreadName("Provsnurr");
+
+	for(;;) {
+		chBSemWait(&m_test_spin_sem);
+		int id = m_test_spin_id;
+
+		// VESC släpper motorn om den inte hör något på en stund, så upprepa.
+		systime_t start = chVTGetSystemTime();
+		while (chVTTimeElapsedSinceX(start) < MS2ST(TEST_SPIN_MS)) {
+			motor_set_vesc_value(id, TEST_SPIN_DUTY, MOTOR_CONTROL_DUTY);
+			chThdSleepMilliseconds(50);
+		}
+		for (int i = 0;i < 3;i++) {
+			motor_set_vesc_value(id, 0.0, MOTOR_CONTROL_DUTY);
+			chThdSleepMilliseconds(20);
+		}
+
+		m_test_spin_id = -1;
+	}
+}
+
+/**
+ * Starta ett provsnurr på en VESC (TEST_SPIN_DUTY i TEST_SPIN_MS).
+ *
+ * @return
+ * false om ett provsnurr redan pågår.
+ */
+bool motor_test_spin(uint8_t vesc_id) {
+	if (m_test_spin_id >= 0) {
+		return false;
+	}
+	m_test_spin_id = vesc_id;
+	chBSemSignal(&m_test_spin_sem);
+	return true;
+}
+
 void motor_control_init(void) {
+	chBSemObjectInit(&m_test_spin_sem, true);
+	chThdCreateStatic(test_spin_thread_wa, sizeof(test_spin_thread_wa), NORMALPRIO,
+			test_spin_thread, NULL);
+
     // Configure steering control parameters
     m_steering_config.p_gain = 2.0;      // From servo_vesc.c
     m_steering_config.i_gain = 1.0;      // From servo_vesc.c

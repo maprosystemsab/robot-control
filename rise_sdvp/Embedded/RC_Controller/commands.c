@@ -1148,6 +1148,41 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			commands_send_packet(m_send_buffer, send_index);
 		} break;
 
+		case CMD_PING_VESC_CAN: {
+			// Pingar ID 0-253 på CAN (som VESC Tool) och svarar med de som
+			// svarade: [id][cmd] { [vesc_id u8] } för varje VESC.
+			commands_set_send_func(func);
+
+			uint8_t ids[64];
+			int n = comm_can_ping_vescs(ids, sizeof(ids));
+
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = packet_id;
+			for (int i = 0;i < n;i++) {
+				m_send_buffer[send_index++] = ids[i];
+			}
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
+		case CMD_TEST_SPIN_VESC: {
+			// [vesc_id u8] -> svar [id][cmd][vesc_id][1 = startat, 0 = upptaget]
+			commands_set_send_func(func);
+			if (len < 1) {
+				break;
+			}
+			uint8_t vesc = data[0];
+			bool started = motor_test_spin(vesc);
+			commands_printf("Provsnurr VESC %d: %s", vesc, started ? "startat" : "upptaget");
+
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = packet_id;
+			m_send_buffer[send_index++] = vesc;
+			m_send_buffer[send_index++] = started ? 1 : 0;
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
 		case CMD_VESC_FWD:
 			timeout_reset();
 			commands_set_send_func(func);

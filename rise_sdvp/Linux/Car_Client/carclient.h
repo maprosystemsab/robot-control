@@ -188,6 +188,7 @@ private:
     bool nodstoppSparrar(const QByteArray &data);
     void nodstoppSattLage(NodstoppLage lage, const QString &text);
     void nodstoppSkrivFil();
+    void nodstoppSkickaLage();
     void skickaTillKlienter(const QByteArray &data);
 
     QString mUsr;

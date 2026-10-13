@@ -112,6 +112,12 @@ pub struct SettingsView {
     confirm_write: bool,
     /// (lyckades, text) efter senaste läsning/skrivning.
     actuator_msg: Option<(bool, String)>,
+    /// VESC som väntar på "Är maskinen upphissad?" innan provsnurr.
+    confirm_spin: Option<u8>,
+    /// Provsnurr skickat, väntar på svar.
+    spin_busy: bool,
+    /// (lyckades, text) efter senaste provsnurr.
+    spin_msg: Option<(bool, String)>,
 }
 
 impl SettingsView {
@@ -126,6 +132,9 @@ impl SettingsView {
             actuator_busy: false,
             confirm_write: false,
             actuator_msg: None,
+            confirm_spin: None,
+            spin_busy: false,
+            spin_msg: None,
         }
     }
 
@@ -141,6 +150,10 @@ impl SettingsView {
     pub fn poll_net(&mut self, net: &mut crate::net::NetLink) {
         if let Some(result) = net.vesc_scan_result.take() {
             self.apply_scan_result(result.iter().map(|s| (s.can_id, s.responding)).collect());
+        }
+        if let Some((_, ok, msg)) = net.test_spin_reply.take() {
+            self.spin_busy = false;
+            self.spin_msg = Some((ok, msg));
         }
         if net.vesc_profile_saved {
             net.vesc_profile_saved = false;
@@ -209,6 +222,11 @@ impl SettingsView {
             });
             ui.add_space(8.0);
 
+            if let Some((ok, msg)) = &self.spin_msg {
+                let color = if *ok { egui::Color32::from_rgb(60, 200, 90) } else { egui::Color32::from_rgb(230, 80, 80) };
+                ui.colored_label(color, msg);
+            }
+
             if self.vescs.is_empty() && !self.scanning {
                 ui.label("Inga VESC hittade än — tryck Skanna CAN-bussen.");
             }
@@ -217,7 +235,7 @@ impl SettingsView {
                 let mut ids: Vec<u8> = self.vescs.iter().map(|v| v.can_id).collect();
                 ids.sort_unstable();
                 for can_id in ids {
-                    self.draw_vesc_row(ui, can_id);
+                    self.draw_vesc_row(ui, can_id, net);
                     ui.separator();
                 }
 
@@ -313,7 +331,7 @@ impl SettingsView {
         });
     }
 
-    fn draw_vesc_row(&mut self, ui: &mut egui::Ui, can_id: u8) {
+    fn draw_vesc_row(&mut self, ui: &mut egui::Ui, can_id: u8, net: &crate::net::NetLink) {
         let idx = self.vescs.iter().position(|v| v.can_id == can_id).unwrap();
 
         ui.horizontal(|ui| {
@@ -358,7 +376,35 @@ impl SettingsView {
                         self.dirty = true;
                     }
                 });
+
+            // Provsnurr: se vilken motor det är (som i VESC Tool).
+            let spin_label = if self.spin_busy { "Snurrar…" } else { "Snurra" };
+            if ui
+                .add_enabled(!self.spin_busy, egui::Button::new(spin_label))
+                .on_hover_text("Kör motorn 30 % i 0,5 s. Maskinen måste vara upphissad.")
+                .clicked()
+            {
+                self.confirm_spin = Some(can_id);
+                self.spin_msg = None;
+            }
         });
+
+        if self.confirm_spin == Some(can_id) {
+            ui.horizontal(|ui| {
+                ui.colored_label(
+                    egui::Color32::from_rgb(255, 170, 90),
+                    format!("Är maskinen upphissad? VESC {can_id} snurrar 30 % i 0,5 s."),
+                );
+                if ui.button("Ja, snurra").clicked() {
+                    self.spin_busy = true;
+                    self.confirm_spin = None;
+                    net.test_spin_vesc(can_id);
+                }
+                if ui.button("Avbryt").clicked() {
+                    self.confirm_spin = None;
+                }
+            });
+        }
 
         // Extra fält om rollen är "Annat".
         if let Some(VescRole::Annat { namn, input, min, max }) = &mut self.vescs[idx].role {

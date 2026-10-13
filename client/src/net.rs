@@ -45,6 +45,8 @@ pub struct NetLink {
     pub actuator_reply: Option<ActuatorReply>,
     /// Senaste svar om körloggarna (lista eller fil), plockas upp av körloggsfönstret.
     pub drive_log_reply: Option<DriveLogReply>,
+    /// Senaste svar på ett provsnurr: (VESC-ID, startat, text).
+    pub test_spin_reply: Option<(u8, bool, String)>,
 }
 
 /// Svar från robotd om körloggarna.
@@ -75,6 +77,7 @@ enum LinkUpdate {
     ViewCode(String),
     Actuators(ActuatorReply),
     DriveLogs(DriveLogReply),
+    TestSpin(u8, bool, String),
 }
 
 impl NetLink {
@@ -94,6 +97,7 @@ impl NetLink {
             last_view_code: None,
             actuator_reply: None,
             drive_log_reply: None,
+            test_spin_reply: None,
         }
     }
 
@@ -147,6 +151,7 @@ impl NetLink {
                 LinkUpdate::ViewCode(code) => self.last_view_code = Some(code),
                 LinkUpdate::Actuators(r) => self.actuator_reply = Some(r),
                 LinkUpdate::DriveLogs(r) => self.drive_log_reply = Some(r),
+                LinkUpdate::TestSpin(id, ok, msg) => self.test_spin_reply = Some((id, ok, msg)),
             }
         }
     }
@@ -192,6 +197,13 @@ impl NetLink {
     pub fn save_vesc_profile(&self, profile: VescProfileMsg) {
         if let Some(tx) = &self.request_tx {
             let _ = tx.try_send(ClientMessage::SaveVescProfile(profile));
+        }
+    }
+
+    /// Provsnurra en VESC (30 % i 0,5 s). Maskinen ska vara upphissad.
+    pub fn test_spin_vesc(&self, can_id: u8) {
+        if let Some(tx) = &self.request_tx {
+            let _ = tx.try_send(ClientMessage::TestSpinVesc { can_id });
         }
     }
 
@@ -303,6 +315,9 @@ async fn run_connection(
                                 }
                                 RobotMessage::ActuatorError(e) => {
                                     let _ = updates_tx.send(LinkUpdate::Actuators(ActuatorReply::Error(e))).await;
+                                }
+                                RobotMessage::VescTestSpin { can_id, ok, message } => {
+                                    let _ = updates_tx.send(LinkUpdate::TestSpin(can_id, ok, message)).await;
                                 }
                                 RobotMessage::DriveLogs(list) => {
                                     let _ = updates_tx.send(LinkUpdate::DriveLogs(DriveLogReply::List(list))).await;

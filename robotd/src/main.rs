@@ -301,14 +301,14 @@ async fn main() {
                         // kan ta flera sekunder och ska inte blockera huvudloopen.
                         // Vid fel svarar vi med tom lista (så Settings-vyn inte
                         // hänger sig i "Skannar...") och loggar orsaken.
-                        tracing::info!("Settings-vy begärde VESC-skanning — frågar styrkortet (CMD_GET_VESC_STATUS).");
+                        tracing::info!("Settings-vy begärde VESC-skanning — styrkortet pingar CAN-bussen.");
                         let known = cfg.known_vesc_ids.clone();
                         let scan = link.as_ref().map(|l| l.scan.clone());
                         tokio::spawn(async move {
                             let found: Vec<u8> = match scan_vesc_bus(scan).await {
-                                Ok(entries) => {
-                                    tracing::info!("VESC-skanning klar: {entries:?}");
-                                    entries.iter().filter(|e| e.is_fresh()).map(|e| e.can_id).collect()
+                                Ok(ids) => {
+                                    tracing::info!("VESC-skanning klar: {ids:?}");
+                                    ids
                                 }
                                 Err(e) => {
                                     tracing::warn!("VESC-skanning misslyckades: {e}");
@@ -353,6 +353,30 @@ async fn main() {
                                     Ok(c) => RobotMessage::ActuatorsWritten(c),
                                     Err(e) => RobotMessage::ActuatorError(e),
                                 }).await;
+                            });
+                        }
+                    }
+                    RobotRequest::TestSpinVesc { can_id, respond_to } => {
+                        // Samma regel som skrivning: inte under körning.
+                        let moving = throttle_ramp.current() != 0.0 || steering_ramp.current() != 0.0;
+                        if last_activated || moving {
+                            let _ = respond_to.send(RobotMessage::VescTestSpin {
+                                can_id,
+                                ok: false,
+                                message: "Stäng av AKTIVERA och låt roboten stå still innan du provsnurrar.".to_string(),
+                            }).await;
+                        } else {
+                            let config = link.as_ref().map(|l| l.config.clone());
+                            tokio::spawn(async move {
+                                let r = test_spin(config, can_id).await;
+                                let (ok, message) = match r {
+                                    Ok(()) => (true, format!("VESC {can_id} snurrar 0,5 s.")),
+                                    Err(e) => {
+                                        tracing::warn!("Provsnurr VESC {can_id} misslyckades: {e}");
+                                        (false, e)
+                                    }
+                                };
+                                let _ = respond_to.send(RobotMessage::VescTestSpin { can_id, ok, message }).await;
                             });
                         }
                     }
@@ -415,7 +439,7 @@ fn merge_scan_with_known(found: &[u8], known: &[u8]) -> Vec<VescSighting> {
 /// Ber länkuppgiften fråga styrkortet om VESC-status.
 async fn scan_vesc_bus(
     scan: Option<tokio::sync::mpsc::Sender<car_client_link::ScanReply>>,
-) -> Result<Vec<vesc_can::VescStatusEntry>, String> {
+) -> Result<Vec<u8>, String> {
     let scan = scan.ok_or("ingen Car_Client-länk (ogiltig car_client_addr)")?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     scan.send(tx).await.map_err(|_| "Car_Client-länken har avslutats")?;
@@ -430,6 +454,20 @@ async fn config_request(
     let config = config.ok_or("ingen Car_Client-länk (ogiltig car_client_addr)")?;
     let (tx, rx) = tokio::sync::oneshot::channel();
     config.send(make(tx)).await.map_err(|_| "Car_Client-länken har avslutats")?;
+    rx.await.map_err(|_| "Car_Client-länken avbröt".to_string())?
+}
+
+/// Ber länkuppgiften låta styrkortet provsnurra en VESC.
+async fn test_spin(
+    config: Option<tokio::sync::mpsc::Sender<car_client_link::ConfigRequest>>,
+    can_id: u8,
+) -> Result<(), String> {
+    let config = config.ok_or("ingen Car_Client-länk (ogiltig car_client_addr)")?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    config
+        .send(car_client_link::ConfigRequest::TestSpin(can_id, tx))
+        .await
+        .map_err(|_| "Car_Client-länken har avslutats")?;
     rx.await.map_err(|_| "Car_Client-länken avbröt".to_string())?
 }
 

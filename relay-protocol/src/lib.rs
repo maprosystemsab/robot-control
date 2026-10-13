@@ -45,6 +45,9 @@ pub enum ClientMessage {
     ListDriveLogs,
     /// Hämta en körlogg (namn från `DriveLogs`).
     GetDriveLog { name: String },
+    /// Provsnurra en VESC (30 % i 0,5 s) för att se vilken motor det är.
+    /// Maskinen ska vara upphissad. Bara förare.
+    TestSpinVesc { can_id: u8 },
 }
 
 /// Skickas av robotd till en ansluten klient.
@@ -72,6 +75,8 @@ pub enum RobotMessage {
     DriveLog { name: String, csv: String },
     /// Körloggarna gick inte att läsa.
     DriveLogError(String),
+    /// Svar på TestSpinVesc: `ok` om styrkortet startade provsnurret.
+    VescTestSpin { can_id: u8, ok: bool, message: String },
 }
 
 /// En aktuator på styrkortet: vilken motor som styrs av vilken aktivitet.

@@ -167,7 +167,10 @@ typedef enum {
 	CAN_PACKET_FILL_RX_BUFFER_LONG,
 	CAN_PACKET_PROCESS_RX_BUFFER,
 	CAN_PACKET_PROCESS_SHORT_BUFFER,
-	CAN_PACKET_STATUS
+	CAN_PACKET_STATUS,
+	// Samma nummer som i VESC-firmware: PING till ett ID ger PONG tillbaka.
+	CAN_PACKET_PING = 17,
+	CAN_PACKET_PONG = 18
 } CAN_PACKET_ID;
 
 // Commands
@@ -239,6 +242,8 @@ typedef enum {
     CMD_STATE_CONTROL_TARGET,   // Set target value for a control loop
     CMD_TEST_SENSOR_STATE,      // Test sensor and state control system
     CMD_GET_VESC_STATUS = 140,  // NY: lista VESC-ID:n som hörts på CAN + senaste status
+    CMD_PING_VESC_CAN = 141,    // NY: pinga ID 0-253 på CAN (som VESC Tool) och lista de som svarar
+    CMD_TEST_SPIN_VESC = 142,   // NY: provsnurr, en VESC 30 % duty i 0,5 s (maskinen upphissad)
 
 	// Mote commands
 	CMD_MOTE_UBX_START_BASE = 200,

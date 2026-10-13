@@ -150,9 +150,19 @@ const RESEND_IDLE: Duration = Duration::from_secs(1);
 /// Hur ofta tillstånd och VESC-status hämtas från styrkortet.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
 const SCAN_TIMEOUT: Duration = Duration::from_secs(3);
+/// Svarar inte kortet på pingen inom så här lång tid har det äldre firmware
+/// (före 30.4) — då används CAN-statuslistan i stället.
+const PING_TIMEOUT: Duration = Duration::from_millis(1500);
 const RECONNECT_DELAY: Duration = Duration::from_secs(3);
 
-pub type ScanReply = oneshot::Sender<Result<Vec<VescStatusEntry>, String>>;
+/// Svar på en skanning: VESC-ID:n som finns på bussen.
+pub type ScanReply = oneshot::Sender<Result<Vec<u8>, String>>;
+
+/// Skanning pågår: först ping (firmware 30.4+), annars CAN-statuslistan.
+enum ScanPhase {
+    Ping,
+    Status,
+}
 pub type ConfigReply = oneshot::Sender<Result<ActuatorConfig, String>>;
 
 /// Läs eller skriv styrkortets aktuatorer (se `board_config`).
@@ -160,14 +170,21 @@ pub enum ConfigRequest {
     Read(ConfigReply),
     /// Skriv och kontrolläs. Svaret är det som faktiskt står på kortet efteråt.
     Write(ActuatorConfig, ConfigReply),
+    /// Provsnurra en VESC (firmware 30.4). Svaret kommer direkt; styrkortet
+    /// sköter tiden och stoppet självt.
+    TestSpin(u8, oneshot::Sender<Result<(), String>>),
 }
 
 impl ConfigRequest {
     fn fail(self, why: &str) {
-        let reply = match self {
-            ConfigRequest::Read(r) | ConfigRequest::Write(_, r) => r,
-        };
-        let _ = reply.send(Err(why.to_string()));
+        match self {
+            ConfigRequest::Read(r) | ConfigRequest::Write(_, r) => {
+                let _ = r.send(Err(why.to_string()));
+            }
+            ConfigRequest::TestSpin(_, r) => {
+                let _ = r.send(Err(why.to_string()));
+            }
+        }
     }
 }
 
@@ -334,7 +351,7 @@ async fn session(
     ch: &mut Channels,
 ) -> Result<SessionEnd, String> {
     let mut last_sent: Option<(DriveSetpoint, Instant)> = None;
-    let mut pending_scan: Option<(ScanReply, Instant)> = None;
+    let mut pending_scan: Option<(ScanReply, ScanPhase, Instant)> = None;
     let mut tick = tokio::time::interval(RESEND_ACTIVE);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut poll = tokio::time::interval(POLL_INTERVAL);
@@ -379,8 +396,8 @@ async fn session(
             }
             req = ch.scans.recv(), if pending_scan.is_none() => {
                 let Some(reply) = req else { return Ok(SessionEnd::MainGone) };
-                link.send_raw_payload(&vesc_can::make_vesc_status_request(p.car_id)).await?;
-                pending_scan = Some((reply, Instant::now() + SCAN_TIMEOUT));
+                link.send_raw_payload(&vesc_can::make_vesc_ping_request(p.car_id)).await?;
+                pending_scan = Some((reply, ScanPhase::Ping, Instant::now() + PING_TIMEOUT));
             }
             req = ch.config.recv() => {
                 let Some(req) = req else { return Ok(SessionEnd::MainGone) };
@@ -391,9 +408,15 @@ async fn session(
             }
             packets = link.poll_packets() => {
                 for pkt in packets? {
-                    if let Some(entries) = vesc_can::parse_vesc_status_reply(&pkt) {
-                        if let Some((reply, _)) = pending_scan.take() {
-                            let _ = reply.send(Ok(entries.clone()));
+                    if let Some(ids) = vesc_can::parse_vesc_ping_reply(&pkt) {
+                        if let Some((reply, ScanPhase::Ping, _)) = pending_scan.take() {
+                            let _ = reply.send(Ok(ids));
+                        }
+                    } else if let Some(entries) = vesc_can::parse_vesc_status_reply(&pkt) {
+                        if matches!(pending_scan, Some((_, ScanPhase::Status, _))) {
+                            let (reply, _, _) = pending_scan.take().unwrap();
+                            let fresh = entries.iter().filter(|e| e.is_fresh()).map(|e| e.can_id).collect();
+                            let _ = reply.send(Ok(fresh));
                         }
                         ch.telemetry.send_modify(|t| t.vescs = entries);
                     } else if let Some(state) = vesc_can::parse_state_reply(&pkt) {
@@ -407,12 +430,24 @@ async fn session(
         }
 
         let now = Instant::now();
-        if pending_scan.as_ref().is_some_and(|(_, deadline)| now >= *deadline) {
-            let (reply, _) = pending_scan.take().unwrap();
-            let _ = reply.send(Err(format!(
-                "inget svar på VESC-statusfrågan inom {SCAN_TIMEOUT:?} \
-                 (saknar kortets firmware CMD_GET_VESC_STATUS?)"
-            )));
+        if pending_scan.as_ref().is_some_and(|(_, _, deadline)| now >= *deadline) {
+            let (reply, phase, _) = pending_scan.take().unwrap();
+            match phase {
+                ScanPhase::Ping => {
+                    tracing::info!(
+                        "Styrkortet svarade inte på VESC-ping (firmware före 30.4?) — \
+                         visar de VESC som skickar CAN-status i stället."
+                    );
+                    link.send_raw_payload(&vesc_can::make_vesc_status_request(p.car_id)).await?;
+                    pending_scan = Some((reply, ScanPhase::Status, now + SCAN_TIMEOUT));
+                }
+                ScanPhase::Status => {
+                    let _ = reply.send(Err(format!(
+                        "inget svar på VESC-statusfrågan inom {SCAN_TIMEOUT:?} \
+                         (saknar kortets firmware CMD_GET_VESC_STATUS?)"
+                    )));
+                }
+            }
         }
 
         let sp = *ch.setpoint.borrow();
@@ -490,6 +525,19 @@ async fn handle_config(link: &mut CarClientLink, car_id: u8, req: ConfigRequest)
                 tracing::warn!("Skrivning av aktuatorer misslyckades: {e}");
             }
             let _ = reply.send(result);
+        }
+        ConfigRequest::TestSpin(vesc, reply) => {
+            tracing::info!("Provsnurr VESC {vesc}.");
+            let req = vesc_can::make_test_spin_request(car_id, vesc);
+            let r = request(link, &req, CONFIG_TIMEOUT, "provsnurret", |p| {
+                vesc_can::parse_test_spin_reply(p).filter(|(id, _)| *id == vesc).map(|(_, started)| started)
+            })
+            .await?;
+            let _ = reply.send(match r {
+                Ok(true) => Ok(()),
+                Ok(false) => Err("ett provsnurr pågår redan — vänta en sekund".to_string()),
+                Err(e) => Err(format!("{e} (styrkortet behöver firmware 30.4)")),
+            });
         }
     }
     Ok(())
@@ -601,18 +649,58 @@ mod tests {
             .unwrap();
         assert!((h.telemetry.borrow().board.unwrap().v_in - 52.6).abs() < 1e-3);
 
-        // Skanning: frågan går på samma anslutning, svaret tillbaka.
+        // Skanning: styrkortet pingar bussen, svaret tillbaka på samma anslutning.
         let (tx, rx) = oneshot::channel();
         h.scan.send(tx).await.unwrap();
+        read_cmd(&mut sock, vesc_can::CMD_PING_VESC_CAN, 1).await;
+        sock.write_all(&encode_packet(&[4, vesc_can::CMD_PING_VESC_CAN, 16, 28, 94])).await.unwrap();
+        assert_eq!(rx.await.unwrap().unwrap(), vec![16, 28, 94]);
+        assert!(h.status.borrow().connected);
+
+        // CAN-statuslistan går fortfarande till telemetrin.
         read_cmd(&mut sock, vesc_can::CMD_GET_VESC_STATUS, 1).await;
         let mut reply = vec![4, vesc_can::CMD_GET_VESC_STATUS, 28, 0, 50];
         reply.extend([0u8; 8]);
         sock.write_all(&encode_packet(&reply)).await.unwrap();
-        let entries = rx.await.unwrap().unwrap();
-        assert_eq!(entries.len(), 1);
-        assert_eq!(entries[0].can_id, 28);
-        assert!(h.status.borrow().connected);
-        assert_eq!(h.telemetry.borrow().vescs.len(), 1);
+        tokio::time::timeout(Duration::from_secs(1), h.telemetry.wait_for(|t| t.vescs.len() == 1))
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    /// Äldre firmware (före 30.4) svarar inte på pingen: då ska skanningen
+    /// visa de VESC som skickar CAN-status, och statussvar som kommer medan
+    /// pingen väntar ska inte avsluta skanningen i förtid.
+    #[tokio::test]
+    async fn skanning_faller_tillbaka_pa_can_status_utan_ping() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (_wanted_tx, wanted) = watch::channel(true);
+        let h = spawn(params(listener.local_addr().unwrap()), wanted);
+        let (mut sock, _) = listener.accept().await.unwrap();
+
+        let (tx, mut rx) = oneshot::channel();
+        h.scan.send(tx).await.unwrap();
+        read_cmd(&mut sock, vesc_can::CMD_PING_VESC_CAN, 1).await;
+        let t = std::time::Instant::now();
+        // Svara på varje statusfråga (pollning och reservfrågan) tills skanningen är klar.
+        let ids = loop {
+            if let Ok(r) = rx.try_recv() {
+                break r.unwrap();
+            }
+            let got = tokio::time::timeout(
+                Duration::from_millis(200),
+                read_cmd(&mut sock, vesc_can::CMD_GET_VESC_STATUS, 1),
+            )
+            .await;
+            if got.is_ok() {
+                let mut reply = vec![4, vesc_can::CMD_GET_VESC_STATUS, 94, 0, 50];
+                reply.extend([0u8; 8]);
+                sock.write_all(&encode_packet(&reply)).await.unwrap();
+            }
+            assert!(t.elapsed() < Duration::from_secs(5), "skanningen blev aldrig klar");
+        };
+        assert_eq!(ids, vec![94]);
+        assert!(t.elapsed() >= PING_TIMEOUT, "skanningen avslutades före pingens tidsgräns");
     }
 
     /// Utan klient ska Car_Client lämnas ifred; när klienten går släpps den

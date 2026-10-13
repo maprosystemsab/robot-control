@@ -61,5 +61,6 @@ void find_ones_positions(unsigned long number);
 can_status_msg *comm_can_get_status_msg_index(int index);
 can_status_msg *comm_can_get_status_msg_id(int id);
 uint32_t comm_can_get_esr(void);
+int comm_can_ping_vescs(uint8_t *ids, int max);
 
 #endif /* COMM_CAN_H_ */

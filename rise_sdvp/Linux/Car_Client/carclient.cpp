@@ -1482,6 +1482,10 @@ const quint8 NS_CMD_SET_SERVO_DIRECT = 122;
 const quint8 NS_CMD_RC_CONTROL_ADV = 125;
 const quint8 NS_CMD_STATE_CONTROL_ENABLE = 132;
 const quint8 NS_CMD_STATE_CONTROL_TARGET = 133;
+const quint8 NS_CMD_TEST_SPIN_VESC = 142; // provsnurr från Robotstyrning (firmware 30.4)
+// Car_Client -> klienterna varje sekund: [id][143][läge], läge 0 ok, 1 intryckt,
+// 2 spärrad (utdragen, väntar på Stopp), 3 fel. RControlStation visar det på Stopp-knappen.
+const quint8 NS_CMD_NODSTOPP_STATUS = 143;
 const quint8 NS_AKTIVITET_FART = 10;
 const quint8 NS_RC_MODE_CURRENT_BRAKE = 3;
 
@@ -1558,7 +1562,25 @@ void CarClient::nodstoppTick()
 
     if (!mNsFilSkriven.isValid() || mNsFilSkriven.elapsed() >= 1000) {
         nodstoppSkrivFil();
+        nodstoppSkickaLage();
     }
+}
+
+void CarClient::nodstoppSkickaLage()
+{
+    quint8 lage = 0;
+    switch (mNsLage) {
+    case NS_INTRYCKT: lage = 1; break;
+    case NS_SPARRAD: lage = 2; break;
+    case NS_FEL: lage = 3; break;
+    default: break;
+    }
+
+    QByteArray pkt;
+    pkt.append((char)(mCarId >= 0 ? mCarId : 0));
+    pkt.append((char)NS_CMD_NODSTOPP_STATUS);
+    pkt.append((char)lage);
+    skickaTillKlienter(pkt);
 }
 
 bool CarClient::nodstoppSparrar(const QByteArray &data)
@@ -1596,6 +1618,7 @@ bool CarClient::nodstoppSparrar(const QByteArray &data)
     case NS_CMD_SET_SERVO_DIRECT:
     case NS_CMD_STATE_CONTROL_ENABLE:
     case NS_CMD_STATE_CONTROL_TARGET:
+    case NS_CMD_TEST_SPIN_VESC:
         korning = true;
         break;
     default:
@@ -1624,6 +1647,7 @@ void CarClient::nodstoppSattLage(NodstoppLage lage, const QString &text)
     mNsApSkickat.invalidate();
     qWarning() << text;
     nodstoppSkrivFil();
+    nodstoppSkickaLage();
 
     // Visas i RControlStations terminal och i robotd:s logg.
     QByteArray printf;

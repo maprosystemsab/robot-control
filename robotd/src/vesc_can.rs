@@ -132,6 +132,38 @@ pub fn parse_vesc_status_reply(payload: &[u8]) -> Option<Vec<VescStatusEntry>> {
     )
 }
 
+/// `CMD_PING_VESC_CAN` (141, firmware 30.4): kortet pingar ID 0–253 på
+/// CAN-bussen som VESC Tool gör och svarar med de som svarade. Hittar alla
+/// VESC, även de som inte har CAN-status påslagen. Kortet är upptaget ~0,1 s.
+pub const CMD_PING_VESC_CAN: u8 = 141;
+
+pub fn make_vesc_ping_request(car_id: u8) -> Vec<u8> {
+    vec![car_id, CMD_PING_VESC_CAN]
+}
+
+/// Svar på `CMD_PING_VESC_CAN`: `[id][141]` följt av ett VESC-ID per byte.
+pub fn parse_vesc_ping_reply(payload: &[u8]) -> Option<Vec<u8>> {
+    match payload {
+        [_id, CMD_PING_VESC_CAN, ids @ ..] => Some(ids.to_vec()),
+        _ => None,
+    }
+}
+
+/// `CMD_TEST_SPIN_VESC` (142, firmware 30.4): kortet kör en VESC på 30 % duty
+/// i 0,5 s och stoppar sedan själv. Svar `[id][142][vesc][1 = startat, 0 = upptaget]`.
+pub const CMD_TEST_SPIN_VESC: u8 = 142;
+
+pub fn make_test_spin_request(car_id: u8, vesc_id: u8) -> Vec<u8> {
+    vec![car_id, CMD_TEST_SPIN_VESC, vesc_id]
+}
+
+pub fn parse_test_spin_reply(payload: &[u8]) -> Option<(u8, bool)> {
+    match payload {
+        [_id, CMD_TEST_SPIN_VESC, vesc, started, ..] => Some((*vesc, *started != 0)),
+        _ => None,
+    }
+}
+
 /// `CMD_GET_STATE` (120): styrkortets tillstånd, samma fråga som RControlStation
 /// pollar. Vi läser bara fart, batterispänning, temperatur och felkod.
 pub const CMD_GET_STATE: u8 = 120;
@@ -233,6 +265,23 @@ pub fn make_rc_control_adv(car_id: u8, activity: u8, value: f32) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pingsvar_tolkas_och_andra_paket_ignoreras() {
+        assert_eq!(parse_vesc_ping_reply(&[6, 141, 2, 16, 94, 105, 125]), Some(vec![2, 16, 94, 105, 125]));
+        assert_eq!(parse_vesc_ping_reply(&[6, 141]), Some(vec![]));
+        assert_eq!(parse_vesc_ping_reply(&[6, 140, 2]), None);
+        assert_eq!(make_vesc_ping_request(6), vec![6, 141]);
+    }
+
+    #[test]
+    fn provsnurr_fraga_och_svar() {
+        assert_eq!(make_test_spin_request(6, 105), vec![6, 142, 105]);
+        assert_eq!(parse_test_spin_reply(&[6, 142, 105, 1]), Some((105, true)));
+        assert_eq!(parse_test_spin_reply(&[6, 142, 105, 0]), Some((105, false)));
+        assert_eq!(parse_test_spin_reply(&[6, 142, 105]), None);
+        assert_eq!(parse_test_spin_reply(&[6, 141, 105, 1]), None);
+    }
 
     /// Bygg ett svar som firmware skulle göra: [id][140] + poster.
     fn entry_bytes(id: u8, age: u16, rpm: i32, cur10: i16, duty1000: i16) -> Vec<u8> {

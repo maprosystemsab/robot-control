@@ -60,6 +60,7 @@ pub enum RobotRequest {
     WriteActuators { config: relay_protocol::ActuatorConfig, respond_to: mpsc::Sender<RobotMessage> },
     ListDriveLogs { respond_to: mpsc::Sender<RobotMessage> },
     GetDriveLog { name: String, respond_to: mpsc::Sender<RobotMessage> },
+    TestSpinVesc { can_id: u8, respond_to: mpsc::Sender<RobotMessage> },
 }
 
 pub struct ServerHandles {
@@ -287,6 +288,19 @@ async fn handle_socket(
                                 let _ = out_tx.send(RobotMessage::ActuatorError(
                                     "bara föraren kan skriva till styrkortet".to_string(),
                                 )).await;
+                            }
+                            Ok(ClientMessage::TestSpinVesc { can_id }) if is_driver => {
+                                let _ = state.request_tx.send(RobotRequest::TestSpinVesc {
+                                    can_id,
+                                    respond_to: out_tx.clone(),
+                                }).await;
+                            }
+                            Ok(ClientMessage::TestSpinVesc { can_id }) => {
+                                let _ = out_tx.send(RobotMessage::VescTestSpin {
+                                    can_id,
+                                    ok: false,
+                                    message: "bara föraren kan provsnurra".to_string(),
+                                }).await;
                             }
                             Ok(ClientMessage::ListDriveLogs) => {
                                 let _ = state.request_tx.send(RobotRequest::ListDriveLogs {

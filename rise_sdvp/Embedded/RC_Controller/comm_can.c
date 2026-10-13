@@ -53,6 +53,9 @@
 #define RX_FRAMES_SIZE				100
 #define RX_BUFFER_SIZE				PACKET_MAX_PL_LEN
 #define CAN_STATUS_MSGS_TO_STORE	10
+// Avsändar-ID när styrkortet pingar VESC (PONG skickas tillbaka till detta ID).
+// 254 används inte av VESC i praktiken; 255 är broadcast.
+#define CAN_PING_SENDER_ID			254
 
 // ADDIO CAN (Additional IO CAN protocol)
 // These are CAN IDs for ADDIO devices
@@ -84,6 +87,7 @@ static int rx_frame_read; // Read index for circular buffer
 static int rx_frame_write; // Write index for circular buffer
 static thread_t *process_tp; // Pointer to process thread
 static int vesc_id = VESC_ID; // Current VESC controller ID (default: VESC_ID)
+static volatile uint8_t pong_seen[32]; // Bit per VESC-ID som svarat på ping (comm_can_ping_vescs)
 
 int iEid;
 extern float servo_output;
@@ -366,6 +370,14 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 							stat_tmp->duty = (float)buffer_get_int16(rxmsg.data8, &ind) / 1000.0;
 							break;
 						}
+					}
+					break;
+
+				case CAN_PACKET_PONG:
+					// Svar på vår ping: data[0] är VESC:ns eget ID.
+					if (id == CAN_PING_SENDER_ID && rxmsg.DLC >= 1) {
+						uint8_t from = rxmsg.data8[0];
+						pong_seen[from >> 3] |= (uint8_t)(1 << (from & 7));
 					}
 					break;
 
@@ -697,6 +709,42 @@ can_status_msg *comm_can_get_status_msg_index(int index) {
 	} else {
 		return 0;
 	}
+}
+
+/**
+ * Pinga VESC-ID 0-253 på CAN-bussen, som VESC Tools "Scan CAN" gör, och
+ * lista de som svarar. Hittar alla VESC, även de som inte skickar CAN-status.
+ * Blockerar anroparen i drygt 100 ms.
+ *
+ * @param ids
+ * Fylls med ID:n som svarade, i stigande ordning.
+ *
+ * @param max
+ * Plats i ids.
+ *
+ * @return
+ * Antal ID:n i ids.
+ */
+int comm_can_ping_vescs(uint8_t *ids, int max) {
+	for (int i = 0;i < 32;i++) {
+		pong_seen[i] = 0;
+	}
+
+	uint8_t sender = CAN_PING_SENDER_ID;
+	for (int id = 0;id < 254;id++) {
+		comm_can_transmit_eid(id | ((uint32_t)CAN_PACKET_PING << 8), &sender, 1);
+	}
+
+	// VESC svarar inom några ms; ge sista pingen marginal.
+	chThdSleepMilliseconds(100);
+
+	int n = 0;
+	for (int id = 0;id < 254 && n < max;id++) {
+		if (pong_seen[id >> 3] & (1 << (id & 7))) {
+			ids[n++] = (uint8_t)id;
+		}
+	}
+	return n;
 }
 
 /**
