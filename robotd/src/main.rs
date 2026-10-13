@@ -370,7 +370,7 @@ async fn main() {
                             tokio::spawn(async move {
                                 let r = test_spin(config, can_id).await;
                                 let (ok, message) = match r {
-                                    Ok(()) => (true, format!("VESC {can_id} snurrar 0,5 s.")),
+                                    Ok(()) => (true, format!("VESC {can_id} snurrar 1 s.")),
                                     Err(e) => {
                                         tracing::warn!("Provsnurr VESC {can_id} misslyckades: {e}");
                                         (false, e)

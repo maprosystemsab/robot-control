@@ -200,7 +200,7 @@ impl NetLink {
         }
     }
 
-    /// Provsnurra en VESC (30 % i 0,5 s). Maskinen ska vara upphissad.
+    /// Provsnurra en VESC (30 % i 1 s). Maskinen ska vara upphissad.
     pub fn test_spin_vesc(&self, can_id: u8) {
         if let Some(tx) = &self.request_tx {
             let _ = tx.try_send(ClientMessage::TestSpinVesc { can_id });

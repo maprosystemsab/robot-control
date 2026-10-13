@@ -381,7 +381,7 @@ impl SettingsView {
             let spin_label = if self.spin_busy { "Snurrar…" } else { "Snurra" };
             if ui
                 .add_enabled(!self.spin_busy, egui::Button::new(spin_label))
-                .on_hover_text("Kör motorn 30 % i 0,5 s. Maskinen måste vara upphissad.")
+                .on_hover_text("Kör motorn 30 % i 1 s. Maskinen måste vara upphissad.")
                 .clicked()
             {
                 self.confirm_spin = Some(can_id);
@@ -393,7 +393,7 @@ impl SettingsView {
             ui.horizontal(|ui| {
                 ui.colored_label(
                     egui::Color32::from_rgb(255, 170, 90),
-                    format!("Är maskinen upphissad? VESC {can_id} snurrar 30 % i 0,5 s."),
+                    format!("Är maskinen upphissad? VESC {can_id} snurrar 30 % i 1 s."),
                 );
                 if ui.button("Ja, snurra").clicked() {
                     self.spin_busy = true;

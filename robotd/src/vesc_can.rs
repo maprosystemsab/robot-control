@@ -150,7 +150,7 @@ pub fn parse_vesc_ping_reply(payload: &[u8]) -> Option<Vec<u8>> {
 }
 
 /// `CMD_TEST_SPIN_VESC` (142, firmware 30.4): kortet kör en VESC på 30 % duty
-/// i 0,5 s och stoppar sedan själv. Svar `[id][142][vesc][1 = startat, 0 = upptaget]`.
+/// i 1 s och stoppar sedan själv. Svar `[id][142][vesc][1 = startat, 0 = upptaget]`.
 pub const CMD_TEST_SPIN_VESC: u8 = 142;
 
 pub fn make_test_spin_request(car_id: u8, vesc_id: u8) -> Vec<u8> {

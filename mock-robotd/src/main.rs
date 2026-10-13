@@ -218,7 +218,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                             }
                             Ok(ClientMessage::TestSpinVesc { can_id }) => {
                                 println!("Provsnurr VESC {can_id} (påhittat).");
-                                let message = format!("VESC {can_id} snurrar 0,5 s.");
+                                let message = format!("VESC {can_id} snurrar 1 s.");
                                 let _ = send(&mut ws_tx, &RobotMessage::VescTestSpin { can_id, ok: true, message }).await;
                             }
                             Ok(ClientMessage::Control(_)) => {

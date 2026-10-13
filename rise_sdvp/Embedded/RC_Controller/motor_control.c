@@ -62,7 +62,7 @@ void motor_set_mode(int _mode) {
 // sedan stopp. Styrkortet stoppar själv, även om länken tappas mitt i.
 // Maskinen ska vara upphissad.
 #define TEST_SPIN_DUTY		0.3
-#define TEST_SPIN_MS		500
+#define TEST_SPIN_MS		1000
 
 static THD_WORKING_AREA(test_spin_thread_wa, 512);
 static binary_semaphore_t m_test_spin_sem;

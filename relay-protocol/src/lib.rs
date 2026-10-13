@@ -45,7 +45,7 @@ pub enum ClientMessage {
     ListDriveLogs,
     /// Hämta en körlogg (namn från `DriveLogs`).
     GetDriveLog { name: String },
-    /// Provsnurra en VESC (30 % i 0,5 s) för att se vilken motor det är.
+    /// Provsnurra en VESC (30 % i 1 s) för att se vilken motor det är.
     /// Maskinen ska vara upphissad. Bara förare.
     TestSpinVesc { can_id: u8 },
 }
