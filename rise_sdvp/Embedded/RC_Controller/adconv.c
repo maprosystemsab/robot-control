@@ -51,6 +51,7 @@ extern uint16_t last_sensorvalue;
 static float angle_mv_filter = 0.0;
 static bool angle_sensor_ok = false;
 static void terminal_cmd_angle(int argc, const char **argv);
+static void terminal_cmd_angle_zero(int argc, const char **argv);
 #endif
 
 static void adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n) {
@@ -169,6 +170,11 @@ void adconv_init(void) {
 			"Vinkelgivaren: spänning (mV), vinkel och status.",
 			0,
 			terminal_cmd_angle);
+	terminal_register_command_callback(
+			"vinkel_noll",
+			"Kalibrera vinkelgivaren: hjulen rakt fram nu. Sparas i styrkortet.",
+			0,
+			terminal_cmd_angle_zero);
 #endif
 }
 
@@ -238,6 +244,16 @@ static void terminal_cmd_get_vin(int argc, const char **argv) {
 
 #ifdef ANGLE_SENSOR_PA3
 /**
+ * Givarens spänning rakt fram (mV). Kalibreras med `vinkel_noll` och sparas i
+ * main_config.vehicle.sensorcentre; orimligt värde (t.ex. standard 580 från
+ * äldre maskiner) -> ANGLE_SENSOR_CENTER_MV.
+ */
+static float angle_center_mv(void) {
+	float c = main_config.vehicle.sensorcentre;
+	return (c > 500.0 && c < 4500.0 && c != 580.0) ? c : ANGLE_SENSOR_CENTER_MV;
+}
+
+/**
  * Räkna om vinkelgivarens spänning till vinkel. Anropas var 10:e ms från main.
  * Vid givarfel (spänning nära 0 V: magneten saknas eller kabeln av) behålls
  * senaste vinkeln och statusen blir "fel".
@@ -252,7 +268,7 @@ void adconv_update_angle(void) {
 	}
 
 	angle_sensor_ok = true;
-	frontangle = (mv - ANGLE_SENSOR_CENTER_MV) * ANGLE_SENSOR_DEG_PER_MV;
+	frontangle = (mv - angle_center_mv()) * ANGLE_SENSOR_DEG_PER_MV;
 	comm_can_io_board_as5047_setangle(frontangle);
 }
 
@@ -263,8 +279,22 @@ bool adconv_angle_sensor_ok(void) {
 static void terminal_cmd_angle(int argc, const char **argv) {
 	(void)argc;
 	(void)argv;
-	commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s\n",
+	commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram = %.0f mV)\n",
 			(double)angle_mv_filter, (double)frontangle,
-			angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)");
+			angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
+			(double)angle_center_mv());
+}
+
+static void terminal_cmd_angle_zero(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+	if (!angle_sensor_ok) {
+		commands_printf("Vinkelgivaren svarar inte (ingen magnet/kabel?) - inget sparat.\n");
+		return;
+	}
+	main_config.vehicle.sensorcentre = angle_mv_filter;
+	conf_general_store_main_config(&main_config);
+	commands_printf("Vinkelgivaren kalibrerad: rakt fram = %.0f mV. Sparat i styrkortet.\n",
+			(double)angle_mv_filter);
 }
 #endif
