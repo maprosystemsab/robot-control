@@ -15,6 +15,7 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <math.h>
 #include "adconv.h"
 #include "utils.h"
 #include "conf_general.h"
@@ -52,6 +53,8 @@ static float angle_mv_filter = 0.0;
 static bool angle_sensor_ok = false;
 static void terminal_cmd_angle(int argc, const char **argv);
 static void terminal_cmd_angle_zero(int argc, const char **argv);
+static void terminal_cmd_angle_right(int argc, const char **argv);
+static void terminal_cmd_angle_left(int argc, const char **argv);
 #endif
 
 static void adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n) {
@@ -175,6 +178,16 @@ void adconv_init(void) {
 			"Kalibrera vinkelgivaren: hjulen rakt fram nu. Sparas i styrkortet.",
 			0,
 			terminal_cmd_angle_zero);
+	terminal_register_command_callback(
+			"vinkel_hoger",
+			"Kalibrera vinkelgivaren: hjulen fullt höger nu. Sparas i styrkortet.",
+			0,
+			terminal_cmd_angle_right);
+	terminal_register_command_callback(
+			"vinkel_vanster",
+			"Kalibrera vinkelgivaren: hjulen fullt vänster nu. Sparas i styrkortet.",
+			0,
+			terminal_cmd_angle_left);
 #endif
 }
 
@@ -254,6 +267,20 @@ static float angle_center_mv(void) {
 }
 
 /**
+ * Trepunktskalibrering (vinkel_noll, vinkel_hoger, vinkel_vanster). Ändlägena
+ * sparas i sensorinterval (höger) och degreeinterval (vänster), som inte används
+ * för vinkelgivaren på PA3. Giltig om båda ändlägena ligger på var sin sida om
+ * mitten; annars används den linjära ANGLE_SENSOR_DEG_PER_MV.
+ */
+static bool angle_cal_mv(float *c, float *r, float *l) {
+	*c = angle_center_mv();
+	*r = main_config.vehicle.sensorinterval;
+	*l = main_config.vehicle.degreeinterval;
+	bool in_range = *r > 100.0 && *r < 4900.0 && *l > 100.0 && *l < 4900.0;
+	return in_range && fabsf(*r - *c) > 50.0 && fabsf(*l - *c) > 50.0 && (*r - *c) * (*l - *c) < 0.0;
+}
+
+/**
  * Räkna om vinkelgivarens spänning till vinkel. Anropas var 10:e ms från main.
  * Vid givarfel (spänning nära 0 V: magneten saknas eller kabeln av) behålls
  * senaste vinkeln och statusen blir "fel".
@@ -268,7 +295,17 @@ void adconv_update_angle(void) {
 	}
 
 	angle_sensor_ok = true;
-	frontangle = (mv - angle_center_mv()) * ANGLE_SENSOR_DEG_PER_MV;
+	float c, r, l;
+	if (angle_cal_mv(&c, &r, &l)) {
+		// Höger = +ANGLE_SENSOR_MAX_DEG, vänster = -ANGLE_SENSOR_MAX_DEG, linjärt på var sida.
+		if ((mv - c) * (r - c) >= 0.0) {
+			frontangle = (mv - c) / (r - c) * ANGLE_SENSOR_MAX_DEG;
+		} else {
+			frontangle = -(mv - c) / (l - c) * ANGLE_SENSOR_MAX_DEG;
+		}
+	} else {
+		frontangle = (mv - c) * ANGLE_SENSOR_DEG_PER_MV;
+	}
 	comm_can_io_board_as5047_setangle(frontangle);
 }
 
@@ -279,10 +316,19 @@ bool adconv_angle_sensor_ok(void) {
 static void terminal_cmd_angle(int argc, const char **argv) {
 	(void)argc;
 	(void)argv;
-	commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram = %.0f mV)\n",
-			(double)angle_mv_filter, (double)frontangle,
-			angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
-			(double)angle_center_mv());
+	float c, r, l;
+	bool cal = angle_cal_mv(&c, &r, &l);
+	if (cal) {
+		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger %.0f mV, vänster %.0f mV)\n",
+				(double)angle_mv_filter, (double)frontangle,
+				angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
+				(double)c, (double)r, (double)l);
+	} else {
+		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger/vänster ej kalibrerat)\n",
+				(double)angle_mv_filter, (double)frontangle,
+				angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
+				(double)c);
+	}
 }
 
 static void terminal_cmd_angle_zero(int argc, const char **argv) {
@@ -296,5 +342,38 @@ static void terminal_cmd_angle_zero(int argc, const char **argv) {
 	conf_general_store_main_config(&main_config);
 	commands_printf("Vinkelgivaren kalibrerad: rakt fram = %.0f mV. Sparat i styrkortet.\n",
 			(double)angle_mv_filter);
+}
+
+static void angle_store_end(bool right) {
+	if (!angle_sensor_ok) {
+		commands_printf("Vinkelgivaren svarar inte (ingen magnet/kabel?) - inget sparat.\n");
+		return;
+	}
+	float c = angle_center_mv();
+	if (fabsf(angle_mv_filter - c) <= 50.0) {
+		commands_printf("Hjulen står nästan rakt (%.0f mV, rakt fram %.0f mV). Styr fullt %s och försök igen.\n",
+				(double)angle_mv_filter, (double)c, right ? "höger" : "vänster");
+		return;
+	}
+	if (right) {
+		main_config.vehicle.sensorinterval = angle_mv_filter;
+	} else {
+		main_config.vehicle.degreeinterval = angle_mv_filter;
+	}
+	conf_general_store_main_config(&main_config);
+	commands_printf("Vinkelgivaren kalibrerad: fullt %s = %.0f mV (%s%.0f grader). Sparat i styrkortet.\n",
+			right ? "höger" : "vänster", (double)angle_mv_filter, right ? "" : "-", (double)ANGLE_SENSOR_MAX_DEG);
+}
+
+static void terminal_cmd_angle_right(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+	angle_store_end(true);
+}
+
+static void terminal_cmd_angle_left(int argc, const char **argv) {
+	(void)argc;
+	(void)argv;
+	angle_store_end(false);
 }
 #endif

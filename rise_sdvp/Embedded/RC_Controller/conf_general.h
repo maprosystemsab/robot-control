@@ -81,6 +81,7 @@
 #define ANGLE_SENSOR_CENTER_MV      2500.0	// givarens spänning rakt fram — TODO: kalibrera
 #define ANGLE_SENSOR_DEG_PER_MV     0.072	// 360° / 5000 mV; byt tecken om vinkeln går åt fel håll
 #define ANGLE_SENSOR_MIN_MV         100.0	// under detta: magneten saknas/givarfel
+#define ANGLE_SENSOR_MAX_DEG        30.0	// styrvinkel vid fullt utslag (vinkel_hoger/vinkel_vanster)
 #endif	// IS_ROVMCU: vinkelgivaren på PA3 finns bara på det gamla kortet
 #endif
 
