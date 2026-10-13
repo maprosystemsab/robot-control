@@ -314,6 +314,16 @@ static THD_FUNCTION(cancom_process_thread, arg) {
 				CAN_PACKET_ID cmd = rxmsg.EID >> 8;
 				can_status_msg *stat_tmp;
 
+				// VESC-svar (buffertpaketen) läses bara om de är adresserade till
+				// styrkortet (main_id + 128, se comm_can_send_buffer). Annars tolkas
+				// t.ex. VESC Tools trafik på bussen som våra svar -> 0 V och
+				// okänd felkod i RControlStation.
+				if ((cmd == CAN_PACKET_FILL_RX_BUFFER || cmd == CAN_PACKET_FILL_RX_BUFFER_LONG ||
+						cmd == CAN_PACKET_PROCESS_RX_BUFFER || cmd == CAN_PACKET_PROCESS_SHORT_BUFFER) &&
+						id != (uint8_t)(main_id + 128)) {
+					continue;
+				}
+
 				switch (cmd) {
 				case CAN_PACKET_FILL_RX_BUFFER:
 					memcpy(rx_buffer + rxmsg.data8[0], rxmsg.data8 + 1, rxmsg.DLC - 1);
