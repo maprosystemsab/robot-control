@@ -916,7 +916,19 @@ static void mpu9150_read(float *accel, float *gyro, float *mag) {
 
 	if (mc_read_cnt >= 10) {
 		mc_read_cnt = 0;
+#ifdef IS_ROBANT
+		// Fråga alltid första motorn i motorlistan (en drivmotor på 48 V-batteriet),
+		// inte den VESC som råkar ha fått senaste kommandot. Batterispänning,
+		// temperatur och felkod i RControlStation kommer härifrån.
+		comm_can_lock_vesc();
+		if (main_config.vehicle.actuators > 0) {
+			comm_can_set_vesc_id(main_config.vehicle.actuator[0].motorid);
+		}
 		bldc_interface_get_values();
+		comm_can_unlock_vesc();
+#else
+		bldc_interface_get_values();
+#endif
 
 	//	#if HAS_HYDRAULIC_DRIVE
 		float turn_rad_rear = 0.0;

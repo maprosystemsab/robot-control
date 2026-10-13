@@ -33,7 +33,7 @@
 
 // Firmware version
 #define FW_VERSION_MAJOR			30
-#define FW_VERSION_MINOR			4	// 30.4 (2026-10-13): CMD_PING_VESC_CAN (141) pingar VESC på CAN som VESC Tool, CMD_TEST_SPIN_VESC (142) provsnurr. 30.3 (2026-09-30): som 30.2 + autopiloten sätter körriktningen. 30.2 (2026-09-29): Write-hängningen rättad, heartbeat i sekunder, stopp
+#define FW_VERSION_MINOR			4	// 30.4 (2026-10-13): CMD_PING_VESC_CAN (141) pingar VESC på CAN som VESC Tool, CMD_TEST_SPIN_VESC (142) provsnurr, RobAnt läser batteriet från VESC. 30.3 (2026-09-30): som 30.2 + autopiloten sätter körriktningen. 30.2 (2026-09-29): Write-hängningen rättad, heartbeat i sekunder, stopp
 
 // IO BOARD
 // #define IO_BOARD
@@ -61,6 +61,7 @@
 // inte påverkas.
 #ifdef IS_ROBANT
 #define IS_DRANGEN
+#define ROBANT_VIN_FROM_VESC	// batteriet läses från VESC, styrkortet kan matas med 12 V
 #define VESC_LEFT 28
 #define VESC_RIGHT 36
 #define VESC_STEERING 76
@@ -128,7 +129,9 @@
 #define VOLTAGEFRACTION 1
 #define SERVO_VESC_S1				180.7 // Left
 #define SERVO_VESC_S2				237.7 // Right
+#ifndef ROBANT_VIN_FROM_VESC
 #define USE_ADCONV_FOR_VIN
+#endif
 #define SERVO_VESC_HYDRAULIC
 #define HYDRAULIC_HAS_SPEED_SENSOR
 #define SERVO_VESC_INVERTED			0
