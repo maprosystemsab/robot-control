@@ -12,6 +12,7 @@ mod hud;
 mod net;
 mod settings;
 mod video;
+mod guide;
 
 use std::time::{Duration, Instant};
 
@@ -98,6 +99,8 @@ struct App {
     /// robotd:s videoport (`video.port` i robotd:s config.json).
     video_port: u16,
     video_texture: Option<egui::TextureHandle>,
+    /// Röd färdlinje i kamerabilden och bakhjulsvyn (knappen "Färdlinje").
+    show_guide: bool,
     /// Förarens Max (0..1) som i RControlStation, sparas mellan körningar.
     max_output: f32,
     /// Körloggsfönstret: öppet, listan från roboten och senaste meddelande.
@@ -130,6 +133,7 @@ impl App {
             video: video::VideoReceiver::new(),
             video_port: 9001,
             video_texture: None,
+            show_guide: true,
             max_output: load_max_output(),
             logs_open: false,
             logs: Vec::new(),
@@ -361,6 +365,11 @@ impl App {
                             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                             egui::Color32::WHITE,
                         );
+                        if self.show_guide {
+                            if let Some(deg) = guide::steering_deg(self.net.fresh_status()) {
+                                guide::draw_path(ui.painter(), dest, deg);
+                            }
+                        }
                         if !video_live {
                             // En stillastående bild ser levande ut — säg det
                             // rakt ut när strömmen fryst eller brutits.
@@ -491,6 +500,14 @@ impl App {
                                 save_max_output(self.max_output);
                             }
 
+                            if ui
+                                .selectable_label(self.show_guide, "Färdlinje")
+                                .on_hover_text("Röd linje i bilden som visar vart roboten är på väg, och hur bakhjulen står")
+                                .clicked()
+                            {
+                                self.show_guide = !self.show_guide;
+                            }
+
                             if ui.button("Loggar").on_hover_text("Körloggar: hämta loggar från roboten").clicked() {
                                 self.logs_open = true;
                                 self.logs_message = "Hämtar listan…".to_string();
@@ -501,6 +518,20 @@ impl App {
                             }
                         });
                     });
+
+                // Bakhjulen ovanifrån, nedre högra hörnet.
+                if self.show_guide {
+                    let deg = guide::steering_deg(self.net.fresh_status());
+                    egui::Area::new("topview".into())
+                        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
+                        .show(ctx, |ui| {
+                            egui::Frame::none()
+                                .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 175))
+                                .inner_margin(egui::Margin::symmetric(8.0, 8.0))
+                                .rounding(8.0)
+                                .show(ui, |ui| guide::draw_topview(ui, deg));
+                        });
+                }
 
                 if !self.activated {
                     egui::Area::new("activate".into())
