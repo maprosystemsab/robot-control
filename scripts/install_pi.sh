@@ -105,6 +105,13 @@ if [ ! -f /etc/robotd/config.json ]; then
   # vilken av /dev/vehicle eller /dev/car som gäller hos er — kontrollera
   # med `ls -la /dev/vehicle /dev/car` på Pi:n om ni är osäkra).
   USB_DEVICE_PATH="${USB_DEVICE_PATH:-/dev/vehicle}"
+  # Pi 5 saknar hårdvarukodaren h264_v4l2m2m (videon startar aldrig), så där
+  # kodas videon i programvara (libx264). Pi 4 behåller hårdvarukodaren.
+  if grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null; then
+    VIDEO_ENCODER="${VIDEO_ENCODER:-libx264}"
+  else
+    VIDEO_ENCODER="${VIDEO_ENCODER:-h264_v4l2m2m}"
+  fi
   sudo tee /etc/robotd/config.json > /dev/null <<EOF
 {
   "robot_id": "${ROBOT_ID}",
@@ -117,10 +124,11 @@ if [ ! -f /etc/robotd/config.json ]; then
   "car_client_id": ${CAR_ID},
   "known_vesc_ids": [${VESC_IDS}],
   "usb_device_path": "${USB_DEVICE_PATH}",
-  "drive": { "speed_max": ${DRIVE_MAX}, "steering_max": ${DRIVE_MAX} }
+  "drive": { "speed_max": ${DRIVE_MAX}, "steering_max": ${DRIVE_MAX} },
+  "video": { "encoder": "${VIDEO_ENCODER}" }
 }
 EOF
-  echo "Skapade /etc/robotd/config.json (robot_id=${ROBOT_ID}, bind_addr=${BIND_ADDR}, bil-ID=${CAR_ID}, VESC=${VESC_IDS}, max=${DRIVE_MAX})."
+  echo "Skapade /etc/robotd/config.json (robot_id=${ROBOT_ID}, bind_addr=${BIND_ADDR}, bil-ID=${CAR_ID}, VESC=${VESC_IDS}, max=${DRIVE_MAX}, video=${VIDEO_ENCODER})."
   echo "Om ni kör WireGuard: sätt bind_addr till robotens wg0-IP + port,"
   echo "t.ex. 192.168.200.8:9000, så robotd bara syns på VPN:et."
   echo "OBS: koden tolererar numera saknade/nya fält i config.json (fylls"
