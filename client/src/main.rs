@@ -484,8 +484,8 @@ impl App {
                                         .prefix("Max: "),
                                 )
                                 .on_hover_text(
-                                    "Värdet som skickas vid fullt spakutslag (som Max i RControlStation). \
-                                     Dra eller dubbelklicka och skriv. Gäller direkt, även under körning.",
+                                    "Farten vid fullt spakutslag (som Max i RControlStation). Styrningen går \
+                                     alltid på 0,8. Dra eller dubbelklicka och skriv. Gäller direkt, även under körning.",
                                 );
                             if resp.changed() {
                                 save_max_output(self.max_output);
@@ -720,14 +720,14 @@ fn max_output_path() -> Option<std::path::PathBuf> {
         .map(|d| d.config_dir().join("max.json"))
 }
 
-/// Förarens Max, 0.45 om inget sparats (det som används på RobAnt).
+/// Förarens Max (bara farten), 0.30 om inget sparats.
 fn load_max_output() -> f32 {
     max_output_path()
         .and_then(|p| std::fs::read_to_string(p).ok())
         .and_then(|s| serde_json::from_str::<f32>(&s).ok())
         .filter(|v| v.is_finite())
         .map(|v| v.clamp(0.05, 1.0))
-        .unwrap_or(0.45)
+        .unwrap_or(0.30)
 }
 
 fn save_max_output(v: f32) {

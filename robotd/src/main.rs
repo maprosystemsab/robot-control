@@ -472,8 +472,9 @@ async fn test_spin(
 }
 
 /// Rampade spakvärden (-1..1) till värden för styrkortet. Förarens max från
-/// klienten gäller för både fart och styrning (som Max-rutan i RControlStation),
-/// begränsat av `max_cap`; utan det används config:ens `speed_max`/`steering_max`.
+/// klienten gäller bara farten (som Max-rutan i RControlStation), begränsat av
+/// `max_cap`; utan det används config:ens `speed_max`. Styrningen går alltid på
+/// config:ens `steering_max` (0,8), oberoende av förarens max.
 fn drive_setpoint(
     d: &config::DriveConfig,
     client_max: Option<f32>,
@@ -482,12 +483,11 @@ fn drive_setpoint(
 ) -> car_client_link::DriveSetpoint {
     let cap = d.max_cap.clamp(0.0, 1.0);
     let scale = |v: f32, max: f32, invert: bool| {
-        let max = client_max.unwrap_or(max).clamp(0.0, cap);
-        let v = v.clamp(-1.0, 1.0) * max;
+        let v = v.clamp(-1.0, 1.0) * max.clamp(0.0, cap);
         if invert { -v } else { v }
     };
     car_client_link::DriveSetpoint {
-        speed: scale(throttle, d.speed_max, d.invert_speed),
+        speed: scale(throttle, client_max.unwrap_or(d.speed_max), d.invert_speed),
         steering: scale(steering, d.steering_max, d.invert_steering),
     }
 }
@@ -594,17 +594,19 @@ mod tests {
     fn spakvarden_skalas_och_begransas() {
         let d = config::DriveConfig::default();
         let sp = drive_setpoint(&d, None, 1.0, -0.5);
-        assert!((sp.speed - 0.45).abs() < 1e-6);
-        assert!((sp.steering + 0.225).abs() < 1e-6);
+        assert!((sp.speed - 0.30).abs() < 1e-6);
+        assert!((sp.steering + 0.4).abs() < 1e-6);
         // Trasig config kan aldrig ge mer än fullt utslag.
         let wild = config::DriveConfig { speed_max: 7.0, steering_max: 7.0, invert_steering: true, ..d };
         let sp = drive_setpoint(&wild, None, 3.0, 1.0);
         assert_eq!(sp.speed, 1.0);
         assert_eq!(sp.steering, -1.0);
         assert!(drive_setpoint(&d, None, 0.0, 0.0).is_zero());
-        // Förarens max gäller för båda, men aldrig över taket.
+        // Förarens max gäller bara farten; styrningen går alltid på 0,8.
         let sp = drive_setpoint(&d, Some(0.6), 1.0, 1.0);
-        assert!((sp.speed - 0.6).abs() < 1e-6 && (sp.steering - 0.6).abs() < 1e-6);
+        assert!((sp.speed - 0.6).abs() < 1e-6 && (sp.steering - 0.8).abs() < 1e-6);
+        let sp = drive_setpoint(&d, Some(0.2), 1.0, 1.0);
+        assert!((sp.speed - 0.2).abs() < 1e-6 && (sp.steering - 0.8).abs() < 1e-6);
         let capped = config::DriveConfig { max_cap: 0.5, ..d.clone() };
         assert!((drive_setpoint(&capped, Some(0.9), 1.0, 0.0).speed - 0.5).abs() < 1e-6);
         assert_eq!(drive_setpoint(&d, Some(-3.0), 1.0, 0.0).speed, 0.0);

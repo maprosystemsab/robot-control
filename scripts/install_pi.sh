@@ -93,7 +93,8 @@ if [ ! -f /etc/robotd/config.json ]; then
   # och Max vid fullt spakutslag (som i RControlStation).
   CAR_ID="${CAR_ID:-4}"
   VESC_IDS="${VESC_IDS:-28,36,76}"
-  DRIVE_MAX="${DRIVE_MAX:-0.45}"
+  DRIVE_MAX="${DRIVE_MAX:-0.30}"
+  STEER_MAX="${STEER_MAX:-0.8}"
   # bind_addr: robotd lyssnar direkt över er WireGuard-VPN (se
   # PROJECT_SPEC.md §14) — ingen central reläserver. Sätt detta till
   # robotens fasta VPN-IP (t.ex. "192.168.200.8:9000", se ert
@@ -124,11 +125,11 @@ if [ ! -f /etc/robotd/config.json ]; then
   "car_client_id": ${CAR_ID},
   "known_vesc_ids": [${VESC_IDS}],
   "usb_device_path": "${USB_DEVICE_PATH}",
-  "drive": { "speed_max": ${DRIVE_MAX}, "steering_max": ${DRIVE_MAX} },
+  "drive": { "speed_max": ${DRIVE_MAX}, "steering_max": ${STEER_MAX} },
   "video": { "encoder": "${VIDEO_ENCODER}" }
 }
 EOF
-  echo "Skapade /etc/robotd/config.json (robot_id=${ROBOT_ID}, bind_addr=${BIND_ADDR}, bil-ID=${CAR_ID}, VESC=${VESC_IDS}, max=${DRIVE_MAX}, video=${VIDEO_ENCODER})."
+  echo "Skapade /etc/robotd/config.json (robot_id=${ROBOT_ID}, bind_addr=${BIND_ADDR}, bil-ID=${CAR_ID}, VESC=${VESC_IDS}, max=${DRIVE_MAX}, styr=${STEER_MAX}, video=${VIDEO_ENCODER})."
   echo "Om ni kör WireGuard: sätt bind_addr till robotens wg0-IP + port,"
   echo "t.ex. 192.168.200.8:9000, så robotd bara syns på VPN:et."
   echo "OBS: koden tolererar numera saknade/nya fält i config.json (fylls"
