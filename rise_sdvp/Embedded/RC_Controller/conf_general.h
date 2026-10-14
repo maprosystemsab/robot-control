@@ -69,8 +69,8 @@
 #define WHEEL_SENSOR                1
 // Hastighetsgivare ZF GS1001 på TX-kontakten (PA2): pulser från en stålskiva med hål.
 // PA2 får intern pull-up (givaren har öppen kollektor).
-#define WHEELSPEED_DIAM             0.30	// m, hjulets diameter — TODO: mät RobAnt
-#define WHEELSPEED_CNTS_PER_REV     13.0	// 13 hål i skivan (Ø170 mm), förutsatt att den sitter på hjulaxeln
+#define WHEELSPEED_DIAM             0.46	// m, rullande diameter: ytterdiameter ca 450 mm, omkrets ca 1500 mm (mk1, 2026-10-14); finjustera med en uppmätt sträcka
+#define WHEELSPEED_CNTS_PER_REV     13.0	// 13 hål Ø20 mm på Ø140 mm hålbild, skiva Ø169 mm på hjulaxeln
 #ifndef IS_ROVMCU	// MP101: hjulpulserna på PA3 med extern pull-up (R127), se pwm_esc.c
 #define WHEELSPEED_PULLUP
 // Vinkelgivare DIS QR30N-360 (0–5 V för 0–360°) på RX-kontakten (PA3) via
