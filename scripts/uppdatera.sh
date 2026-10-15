@@ -73,7 +73,27 @@ else
   echo "--- Skickar koden till roboten ---"
   # Bara filerna i git: inga byggda filer (en Car_Client eller firmware byggd på
   # den här datorn fungerar inte på Pi:n) och inga lokala/interna filer.
+  SKICKAT=0
   if git ls-files -z | rsync -a --from0 --files-from=- -e "${SSH[*]}" ./ "$PI:robot-control/"; then
+    SKICKAT=1
+  fi
+  # Styrkortets firmware, Car_Client och verktygen: det senaste från rise_sdvp (som
+  # uppdatera_dator.sh nyss hämtat), inte kopian i robot-control som kan ligga efter.
+  RISE="$(cat "$KONF/rise_sdvp" 2>/dev/null)"
+  if [ "$SKICKAT" -eq 1 ] && [ -n "$RISE" ] && [ -d "$RISE/Embedded/RC_Controller" ]; then
+    if [ -n "$(git -C "$RISE" status --porcelain --untracked-files=no -- Embedded/RC_Controller Linux/Car_Client Linux/tools)" ]; then
+      echo -e "${YELLOW}rise_sdvp ($RISE) har ändrade filer som inte är incheckade — skickar robot-controls kopia i stället.${NC}"
+      RESULTAT+=("Firmware/Car_Client: robot-controls kopia (rise_sdvp hade ej incheckade ändringar)")
+    elif (cd "$RISE" && git ls-files -z -- Embedded/RC_Controller Linux/Car_Client Linux/tools \
+          | rsync -a --from0 --files-from=- -e "${SSH[*]}" ./ "$PI:robot-control/rise_sdvp/"); then
+      echo "Firmware och Car_Client från rise_sdvp $(git -C "$RISE" log -1 --format='%h (%cd)' --date=short)."
+    else
+      SKICKAT=0
+    fi
+  elif [ "$SKICKAT" -eq 1 ]; then
+    echo -e "${YELLOW}Hittar ingen rise_sdvp-klon (RControlStation) — skickar robot-controls kopia av firmwaren.${NC}"
+  fi
+  if [ "$SKICKAT" -eq 1 ]; then
     if "${SSH[@]}" -t "$PI" "cd robot-control && bash scripts/uppdatera_pi.sh"; then
       RESULTAT+=("Roboten: Car_Client, robotd och styrkortet uppdaterade")
     else

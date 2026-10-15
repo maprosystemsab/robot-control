@@ -33,7 +33,7 @@
 
 // Firmware version
 #define FW_VERSION_MAJOR			30
-#define FW_VERSION_MINOR			4	// 30.4 (2026-10-13): CMD_PING_VESC_CAN (141) pingar VESC på CAN som VESC Tool, CMD_TEST_SPIN_VESC (142) provsnurr, RobAnt läser batteriet från VESC. 30.3 (2026-09-30): som 30.2 + autopiloten sätter körriktningen. 30.2 (2026-09-29): Write-hängningen rättad, heartbeat i sekunder, stopp
+#define FW_VERSION_MINOR			5	// 30.5 (2026-10-15): självcentrerande styrning med vinkelgivaren (styr_position.c), hjuldiameter RobAnt 0,46 m. 30.4 (2026-10-13): CMD_PING_VESC_CAN (141) pingar VESC på CAN som VESC Tool, CMD_TEST_SPIN_VESC (142) provsnurr, RobAnt läser batteriet från VESC. 30.3 (2026-09-30): som 30.2 + autopiloten sätter körriktningen. 30.2 (2026-09-29): Write-hängningen rättad, heartbeat i sekunder, stopp
 
 // IO BOARD
 // #define IO_BOARD

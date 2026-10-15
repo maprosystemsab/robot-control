@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # uppdatera_pi.sh — körs PÅ robotens Pi, normalt av scripts/uppdatera.sh från datorn
 # (som först har skickat över den nya koden). Inga frågor utom sudo-lösenordet:
+#   0. Läser av roboten: maskin, kort, firmware, styrkortets inställningar,
+#      motorlista och vilka VESC som svarar. Sparas i ~/uppdatering_backup/.
 #   1. Car_Client byggs om och startas om
 #   2. robotd byggs om och startas om (scripts/uppdatera_robotd.sh)
 #   3. Styrkortet flashas om dess firmwareversion skiljer sig från källans
 #      (ST-Link ska sitta i). Inställningarna i kortet behålls (ELF-flashning).
+#   4. Kontroll: inställningar, motorlista och VESC jämförs med steg 0. Har något
+#      ändrats skrivs de sparade inställningarna tillbaka.
 #
 #   bash scripts/uppdatera_pi.sh
 #   MASKIN=mactrac bash scripts/uppdatera_pi.sh   annan firmware än robant
@@ -21,6 +25,14 @@ FEL=0
 fel() { echo -e "${RED}FEL: $*${NC}"; FEL=1; }
 
 MASKIN="${MASKIN:-$(cat "$HOME/.config/robot-control/maskin" 2>/dev/null || echo robant)}"
+# Kortet: nya ROV_MCU (MP101, Upwis) sitter ihop med en CM5; annars det gamla styrkortet.
+KORTTYP="gamla"
+if tr -d '\0' < /proc/device-tree/model 2>/dev/null | grep -qi "Compute Module 5"; then
+  KORTTYP="rovmcu"
+fi
+BACKUP_DIR="$HOME/uppdatering_backup"
+BACKUP="$BACKUP_DIR/styrkort_$(date +%Y-%m-%d_%H-%M-%S).json"
+SAMMANFATTNING=()
 CC_DIR="$ROOT/rise_sdvp/Linux/Car_Client"
 FW_DIR="$ROOT/rise_sdvp/Embedded/RC_Controller"
 TOOLS="$ROOT/rise_sdvp/Linux/tools"
@@ -32,8 +44,21 @@ sudo -v || { echo "Avbryter: sudo krävs."; exit 1; }
 SUDO_KEEP=$!
 trap 'kill $SUDO_KEEP 2>/dev/null' EXIT
 
+# --- 0. Läs av roboten ------------------------------------------------------------
+steg "0/4 Läser av roboten"
+echo "Maskin: $MASKIN ($([ "$KORTTYP" = rovmcu ] && echo "ROV_MCU-kortet" || echo "styrkort med ST-Link"))"
+mkdir -p "$BACKUP_DIR"
+HAR_BACKUP=0
+if python3 "$TOOLS/styrkort_backup.py" spara "$BACKUP"; then
+  HAR_BACKUP=1
+  echo "Backup: $BACKUP"
+else
+  echo -e "${YELLOW}Kunde inte läsa styrkortet före uppdateringen (ansluten klient, eller kortet svarar inte).${NC}"
+  echo -e "${YELLOW}Styrkortet flashas inte utan backup. Car_Client och robotd uppdateras ändå.${NC}"
+fi
+
 # --- 1. Car_Client --------------------------------------------------------------
-steg "1/3 Car_Client"
+steg "1/4 Car_Client"
 if [ -f "$CC_DIR/Car_Client.pro" ]; then
   QMAKE=qmake; command -v qmake6 >/dev/null && QMAKE=qmake6
   # Aldrig en binär från en annan dator (hände på MacBot 2026-09-28): stämmer inte
@@ -60,7 +85,7 @@ else
 fi
 
 # --- 2. robotd ------------------------------------------------------------------
-steg "2/3 robotd"
+steg "2/4 robotd"
 if [ -d "$ROOT/robotd" ]; then
   bash scripts/uppdatera_robotd.sh || fel "robotd gick inte att uppdatera."
 else
@@ -68,7 +93,7 @@ else
 fi
 
 # --- 3. Styrkortets firmware ----------------------------------------------------
-steg "3/3 Styrkortet (firmware $MASKIN)"
+steg "3/4 Styrkortet (firmware $MASKIN)"
 KALLA=$(python3 "$TOOLS/fw_version.py" --kalla "$FW_DIR" 2>/dev/null)
 KORT=""
 if [ ! -f "$TOOLS/fw_version.py" ] || [ -z "$KALLA" ]; then
@@ -90,16 +115,25 @@ elif [ -z "$KORT" ]; then
   fi
 elif [ "$KORT" = "$KALLA" ] && [ "${FLASHA_ALLTID:-0}" != "1" ]; then
   echo "Styrkortet har redan firmware $KORT — ingen flashning behövs."
+  SAMMANFATTNING+=("Styrkortet: redan firmware $KORT")
+elif [ "$HAR_BACKUP" -ne 1 ] && [ "${FLASHA_UTAN_BACKUP:-0}" != "1" ]; then
+  fel "Styrkortet har $KORT, ny version är $KALLA, men flashas inte utan backup (se steg 0). Kör igen."
 else
   echo "Styrkortet har $KORT, ny version är $KALLA — flashar (inställningarna behålls)."
   if ! lsusb | grep -qi "st-link"; then
     fel "Ingen ST-Link hittades på USB. Flashar inte."
-  elif RC_FW_DIR="$FW_DIR" bash "$ROOT/flash_styrkort.sh" --maskin "$MASKIN" --fw-dir "$FW_DIR" --ja; then
+  elif if [ "$KORTTYP" = rovmcu ]; then
+         RC_FW_DIR="$FW_DIR" bash "$ROOT/flash_styrkort.sh" --maskin rovmcu --profil "$MASKIN" --fw-dir "$FW_DIR" --ja
+       else
+         RC_FW_DIR="$FW_DIR" bash "$ROOT/flash_styrkort.sh" --maskin "$MASKIN" --fw-dir "$FW_DIR" --ja
+       fi; then
     sleep 5
     NY=""
     for _ in 1 2 3 4 5 6; do NY=$(python3 "$TOOLS/fw_version.py" 2>/dev/null) && break; sleep 5; done
     if [ "$NY" = "$KALLA" ]; then
       echo -e "${GREEN}Styrkortet kör nu firmware $NY.${NC}"
+      SAMMANFATTNING+=("Styrkortet: flashat $KORT -> $NY")
+      FLASHAT=1
     else
       fel "Efter flashningen svarar kortet med '${NY:-inget svar}' (väntat $KALLA)."
     fi
@@ -108,7 +142,24 @@ else
   fi
 fi
 
+# --- 4. Kontroll ----------------------------------------------------------------
+steg "4/4 Kontroll av styrkortet"
+if [ "$HAR_BACKUP" -eq 1 ]; then
+  python3 "$TOOLS/styrkort_backup.py" aterstall "$BACKUP"
+  case $? in
+    0) SAMMANFATTNING+=("Inställningar, motorlista och VESC: som före") ;;
+    2) fel "Styrkortet svarar inte efter uppdateringen. Kontrollera strömmen och USB-kabeln." ;;
+    *) fel "Styrkortet skiljer sig från före uppdateringen (se ovan). Backup: $BACKUP" ;;
+  esac
+else
+  echo "Ingen backup från steg 0 — hoppar över jämförelsen."
+fi
+if [ "${FLASHAT:-0}" = "1" ] && grep -q "ANGLE_SENSOR_PA3" "$FW_DIR/conf_general.h" 2>/dev/null && [ "$KORTTYP" != rovmcu ]; then
+  SAMMANFATTNING+=("Gör själv: kontrollera styrningen (kör 'vinkel' i RControlStation, och kalibrera vid behov)")
+fi
+
 echo
+for r in "${SAMMANFATTNING[@]}"; do echo "  $r"; done
 if [ "$FEL" -eq 0 ]; then
   echo -e "${GREEN}Pi:n och styrkortet är uppdaterade.${NC}"
 else

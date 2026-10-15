@@ -90,6 +90,8 @@ elif ! { ny_adress "$RCS_REPO"; git -C "$RCS_REPO" pull --ff-only; }; then
   echo -e "${RED}git pull i $RCS_REPO gick inte (ändrade filer?).${NC}"
   RESULTAT+=("RControlStation: FEL vid git pull")
 else
+  # uppdatera.sh skickar styrkortets firmware och Car_Client från den här klonen till roboten.
+  mkdir -p "$HOME/.config/robot-control" && echo "$RCS_REPO" > "$HOME/.config/robot-control/rise_sdvp"
   STATION="$RCS_REPO/Linux/RControlStation"
   BYGG="$STATION/build/cmake_linux"
   # Bygg vidare i den befintliga byggmappen: databasen (dosa-bindningar) bredvid

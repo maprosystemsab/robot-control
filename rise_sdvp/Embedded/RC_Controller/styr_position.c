@@ -16,6 +16,8 @@
 	- Givarfel under körning: duty 0, och nästa kommando går i det gamla läget.
 	- Går vinkeln åt fel håll (fel tecken) i STYRPOS_WRONG_MS: duty 0 och
 	  läget slås av tills `styrlage vinkel` körs igen.
+	- Står vinkeln still fast motorn drivs i STYRPOS_STALL_MS (givaren har
+	  fastnat, t.ex. FMV 2026-10-13, eller styrningen kärvar): samma sak.
  */
 
 #include "styr_position.h"
@@ -42,6 +44,9 @@ extern float frontangle;
 #define STYRPOS_MAX_DEG			(ANGLE_SENSOR_MAX_DEG * 0.93)
 #define STYRPOS_HOLD_MS			3000
 #define STYRPOS_WRONG_MS		600
+#define STYRPOS_STALL_MS		1500
+#define STYRPOS_STALL_DEG		0.5
+#define STYRPOS_STALL_MIN_ERR	5.0
 
 static float m_kp = 0.05;			// duty per grad
 static float m_max_duty = 0.6;
@@ -58,6 +63,9 @@ static float m_wrong_start_angle = 0.0;
 static float m_wrong_dir = 0.0;
 static systime_t m_wrong_since = 0;
 static bool m_wrong_timing = false;
+static systime_t m_stall_since = 0;
+static float m_stall_angle = 0.0;
+static bool m_stall_timing = false;
 
 static void set_duty(int id, float duty) {
 	comm_can_lock_vesc();
@@ -88,6 +96,19 @@ static void stop(void) {
 	}
 	m_driving = false;
 	m_wrong_timing = false;
+	m_stall_timing = false;
+}
+
+static void give_up(const char *why) {
+	if (m_vesc_id >= 0) {
+		set_duty(m_vesc_id, 0.0);
+	}
+	m_driving = false;
+	m_wrong_timing = false;
+	m_stall_timing = false;
+	m_enabled = false;
+	commands_printf("Styrning: %s. Vinkelstyrningen avslagen, spaken styr motorn direkt "
+			"(styrlage vinkel slår på den igen).\n", why);
 }
 
 void styrpos_update(void) {
@@ -113,6 +134,7 @@ void styrpos_update(void) {
 				m_driving = false;
 			}
 			m_wrong_timing = false;
+			m_stall_timing = false;
 			return;
 		}
 		stop();
@@ -138,17 +160,30 @@ void styrpos_update(void) {
 	} else if (chVTTimeElapsedSinceX(m_wrong_since) > MS2ST(STYRPOS_WRONG_MS)) {
 		float moved = (frontangle - m_wrong_start_angle) * dir;	// + = mot målet
 		if (moved < -3.0) {
-			set_duty(m_vesc_id, 0.0);
-			m_driving = false;
-			m_enabled = false;
-			commands_printf("Styrning: hjulen gick %.1f° åt fel håll. Vinkelstyrningen avslagen, "
-					"spaken styr motorn direkt. Byt tecken: styrlage tecken, sedan styrlage vinkel\n",
-					(double)-moved);
+			give_up("hjulen gick åt fel håll (byt tecken med styrlage tecken)");
 			return;
 		}
 		// Nytt mätfönster
 		m_wrong_since = chVTGetSystemTimeX();
 		m_wrong_start_angle = frontangle;
+	}
+
+	// Står still: motorn drivs men vinkeln ändras inte (givaren har fastnat
+	// eller styrningen kärvar) -> stoppa hellre än att driva vidare i blindo.
+	// Bara vid stort fel: nära målet kan minsta duty vara för svag för att rubba
+	// styrningen, och då är det inget fel.
+	if (fabsf(err) < STYRPOS_STALL_MIN_ERR) {
+		m_stall_timing = false;
+	} else if (!m_stall_timing) {
+		m_stall_timing = true;
+		m_stall_since = chVTGetSystemTimeX();
+		m_stall_angle = frontangle;
+	} else if (fabsf(frontangle - m_stall_angle) > STYRPOS_STALL_DEG) {
+		m_stall_since = chVTGetSystemTimeX();
+		m_stall_angle = frontangle;
+	} else if (chVTTimeElapsedSinceX(m_stall_since) > MS2ST(STYRPOS_STALL_MS)) {
+		give_up("vinkeln ändras inte fast motorn drivs (givaren fast eller styrningen kärvar)");
+		return;
 	}
 
 	set_duty(m_vesc_id, duty);
