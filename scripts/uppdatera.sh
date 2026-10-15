@@ -91,10 +91,10 @@ else
   # uppdatera_dator.sh nyss hämtat), inte kopian i robot-control som kan ligga efter.
   RISE="$(cat "$KONF/rise_sdvp" 2>/dev/null)"
   if [ "$SKICKAT" -eq 1 ] && [ -n "$RISE" ] && [ -d "$RISE/Embedded/RC_Controller" ]; then
-    if [ -n "$(git -C "$RISE" status --porcelain --untracked-files=no -- Embedded/RC_Controller Linux/Car_Client Linux/tools)" ]; then
+    if [ -n "$(git -C "$RISE" status --porcelain --untracked-files=no -- Embedded/RC_Controller Linux/Car_Client Linux/tools Linux/StatusSkarm)" ]; then
       echo -e "${YELLOW}rise_sdvp ($RISE) har ändrade filer som inte är incheckade — skickar robot-controls kopia i stället.${NC}"
       RESULTAT+=("Firmware/Car_Client: robot-controls kopia (rise_sdvp hade ej incheckade ändringar)")
-    elif (cd "$RISE" && git ls-files -z -- Embedded/RC_Controller Linux/Car_Client Linux/tools \
+    elif (cd "$RISE" && git ls-files -z -- Embedded/RC_Controller Linux/Car_Client Linux/tools Linux/StatusSkarm \
           | rsync -a --from0 --files-from=- -e "${SSH[*]}" ./ "$PI:robot-control/rise_sdvp/"); then
       echo "Firmware och Car_Client från rise_sdvp $(git -C "$RISE" log -1 --format='%h (%cd)' --date=short)."
     else

@@ -4,7 +4,8 @@
 #   0. Läser av roboten: maskin, kort, firmware, styrkortets inställningar,
 #      motorlista och vilka VESC som svarar. Sparas i ~/uppdatering_backup/.
 #   1. Car_Client byggs om och startas om
-#   2. robotd byggs om och startas om (scripts/uppdatera_robotd.sh)
+#   2. robotd byggs om och startas om (scripts/uppdatera_robotd.sh), och
+#      statusskärmen om den är installerad (~/.local/bin/statusskarm)
 #   3. Styrkortet flashas om dess firmwareversion skiljer sig från källans
 #      (ST-Link ska sitta i). Inställningarna i kortet behålls (ELF-flashning).
 #   4. Kontroll: inställningar, motorlista och VESC jämförs med steg 0. Har något
@@ -90,6 +91,21 @@ if [ -d "$ROOT/robotd" ]; then
   bash scripts/uppdatera_robotd.sh || fel "robotd gick inte att uppdatera."
 else
   echo "Ingen robotd här — hoppar över."
+fi
+
+# Statusskärmen (touchskärmen i skåpet), bara om den är installerad på den här Pi:n.
+SKARM_SRC="$ROOT/rise_sdvp/Linux/StatusSkarm"
+if [ -x "$HOME/.local/bin/statusskarm" ] && [ -f "$SKARM_SRC/Cargo.toml" ]; then
+  echo "--- Statusskärmen ---"
+  source "$HOME/.cargo/env" 2>/dev/null || true
+  if (cd "$SKARM_SRC" && cargo build --release 2>&1 | tail -2); then
+    # Byt filen med mv (den körs just nu), och låt statusskarm-loop starta om den.
+    cp "$SKARM_SRC/target/release/statusskarm" "$HOME/.local/bin/statusskarm.ny" \
+      && mv -f "$HOME/.local/bin/statusskarm.ny" "$HOME/.local/bin/statusskarm" \
+      && { pkill -x statusskarm 2>/dev/null; echo "Statusskärmen uppdaterad (startar om av sig själv)."; }
+  else
+    fel "Statusskärmen gick inte att bygga (se ovan)."
+  fi
 fi
 
 # --- 3. Styrkortets firmware ----------------------------------------------------
