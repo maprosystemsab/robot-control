@@ -18,10 +18,10 @@ const TRACK_M: f32 = 1.0;
 /// Största styrvinkel (grader) när bara procent finns (äldre robotd).
 const MAX_STEER_DEG: f32 = 30.0;
 /// Styrutslag (procent) under vilket linjerna visas raka.
-const STRAIGHT_PERCENT: f32 = 3.0;
+const STRAIGHT_PERCENT: f32 = 9.0;
 /// ...och under så här många grader, eftersom styrningen stannar inom ±1° från
 /// spakens läge (firmwarens dödband) och 1° kan vara 4 % på en robot med litet utslag.
-const STRAIGHT_DEG: f32 = 1.5;
+const STRAIGHT_DEG: f32 = 2.7;
 /// Hur långt fram linjen ritas (m).
 const PATH_LEN_M: f32 = 7.0;
 /// Horisonten i bilden, som andel av höjden uppifrån.
@@ -37,7 +37,7 @@ const PATH_FAINT: Color32 = Color32::from_rgba_premultiplied(160, 30, 25, 160);
 pub fn steering_deg(s: Option<&StatusUpdate>) -> Option<f32> {
     let s = s?;
     let deg = s.steering_deg.or_else(|| s.steering_percent.map(|p| p / 100.0 * MAX_STEER_DEG))?;
-    // Under 3 % utslag är det i praktiken rakt: visa raka linjer i stället för
+    // Under 9 % utslag (ca 2,7°) är det i praktiken rakt: visa raka linjer i stället för
     // att de vickar för varje grad givaren rör sig (önskemål 2026-10-15).
     let pct = s.steering_percent.unwrap_or(deg / MAX_STEER_DEG * 100.0);
     Some(if pct.abs() < STRAIGHT_PERCENT || deg.abs() < STRAIGHT_DEG { 0.0 } else { deg })
@@ -192,8 +192,10 @@ mod tests {
         assert_eq!(steering_deg(Some(&s)), Some(0.0));
         let s = StatusUpdate { steering_deg: Some(1.2), steering_percent: Some(4.8), ..Default::default() };
         assert_eq!(steering_deg(Some(&s)), Some(0.0), "1° är rakt även om det är 4 %");
-        let s = StatusUpdate { steering_deg: Some(2.0), steering_percent: Some(8.0), ..Default::default() };
-        assert_eq!(steering_deg(Some(&s)), Some(2.0));
+        let s = StatusUpdate { steering_deg: Some(2.0), steering_percent: Some(6.7), ..Default::default() };
+        assert_eq!(steering_deg(Some(&s)), Some(0.0), "2° (skärmbild 2026-10-15) ska vara rakt");
+        let s = StatusUpdate { steering_deg: Some(3.0), steering_percent: Some(10.0), ..Default::default() };
+        assert_eq!(steering_deg(Some(&s)), Some(3.0));
         assert_eq!(steering_deg(None), None);
     }
 }
