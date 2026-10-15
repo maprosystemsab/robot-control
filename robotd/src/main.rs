@@ -49,6 +49,7 @@ async fn main() {
                 car_id: cfg.car_client_id,
                 speed_activity: cfg.drive.speed_activity,
                 steering_activity: cfg.drive.steering_activity,
+                pivot_activity: cfg.drive.pivot_activity,
                 steering_sensor: cfg.vehicle.steering_sensor,
             },
             server.clients_connected.clone(),
@@ -110,6 +111,8 @@ async fn main() {
     // Senaste spakvärden från föraren (-1..1), nollade om AKTIVERA inte är på.
     let mut target_throttle = 0.0f32;
     let mut target_steering = 0.0f32;
+    // O hålls in på dosan: styrspaken vänder roboten på stället.
+    let mut target_pivot = false;
     // För körloggen: senaste kommandots AKTIVERA-flagga, antal kommandon sedan
     // förra loggraden och watchdog-läget, så att det syns vad som händer.
     let mut last_activated = false;
@@ -163,6 +166,7 @@ async fn main() {
                     estop_needs_reactivate = true;
                     target_throttle = 0.0;
                     target_steering = 0.0;
+                    target_pivot = false;
                 }
 
                 let wd_state = watchdog.state(now);
@@ -190,7 +194,11 @@ async fn main() {
                 }
 
                 if let Some(l) = &link {
-                    let sp = drive_setpoint(&cfg.drive, client_max, throttle_ramp.current(), steering_ramp.current());
+                    let mut sp = drive_setpoint(&cfg.drive, client_max, throttle_ramp.current(), steering_ramp.current());
+                    if target_pivot && wd_state == WatchdogState::Ok && !estop_active {
+                        // Vändning: ingen gas, spaken direkt till vändningen (firmwaren rampar).
+                        sp = pivot_setpoint(&cfg.drive, target_steering);
+                    }
                     // Körlogg en gång per sekund medan någon är ansluten.
                     if now.duration_since(last_drive_log) >= Duration::from_secs(1) {
                         if cmds_since_log > 0 || !sp.is_zero() {
@@ -276,6 +284,11 @@ async fn main() {
                 let clean = |v: f32| if cmd.activated && v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
                 target_throttle = clean(cmd.throttle);
                 target_steering = clean(cmd.steering);
+                target_pivot = cmd.activated && cmd.pivot;
+                if target_pivot {
+                    // Gasen räknas inte under vändning, och ska inte ha rampat upp när O släpps.
+                    target_throttle = 0.0;
+                }
                 if estop_needs_reactivate {
                     // Spärren släpps först när knappen är ute och föraren har slagit av AKTIVERA.
                     if !cmd.activated && estop_state.is_none_or(|s| s == estop::Estop::Ok) {
@@ -284,6 +297,7 @@ async fn main() {
                     }
                     target_throttle = 0.0;
                     target_steering = 0.0;
+                    target_pivot = false;
                 }
                 client_max = cmd.max_output.filter(|m| m.is_finite());
 
@@ -489,7 +503,15 @@ fn drive_setpoint(
     car_client_link::DriveSetpoint {
         speed: scale(throttle, client_max.unwrap_or(d.speed_max), d.invert_speed),
         steering: scale(steering, d.steering_max, d.invert_steering),
+        pivot: 0.0,
     }
+}
+
+/// Bandvagnsvändning: styrspaken (−1…1, + = höger = medurs) rakt till firmwaren,
+/// som själv begränsar farten. Ingen gas och ingen styrning under tiden.
+fn pivot_setpoint(d: &config::DriveConfig, steering: f32) -> car_client_link::DriveSetpoint {
+    let v = if steering.is_finite() { steering.clamp(-1.0, 1.0) } else { 0.0 };
+    car_client_link::DriveSetpoint { speed: 0.0, steering: 0.0, pivot: if d.invert_steering { -v } else { v } }
 }
 
 /// Enkel koll för OLED-displayen: är WireGuard-gränssnittet (`wg0`) uppe?
@@ -588,6 +610,18 @@ mod tests {
         assert_eq!(get(36), Some(true));
         assert_eq!(get(28), Some(false));
         assert_eq!(get(76), Some(false));
+    }
+
+    #[test]
+    fn vandning_tar_spaken_rakt_utan_gas() {
+        let d = config::DriveConfig::default();
+        let sp = pivot_setpoint(&d, 0.7);
+        assert_eq!((sp.speed, sp.steering, sp.pivot), (0.0, 0.0, 0.7));
+        assert!(!sp.is_zero());
+        assert_eq!(pivot_setpoint(&d, 3.0).pivot, 1.0);
+        let inv = config::DriveConfig { invert_steering: true, ..config::DriveConfig::default() };
+        assert_eq!(pivot_setpoint(&inv, 0.5).pivot, -0.5);
+        assert!(pivot_setpoint(&d, 0.0).is_zero());
     }
 
     #[test]

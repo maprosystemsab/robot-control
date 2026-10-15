@@ -329,6 +329,7 @@ impl App {
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(0),
             max_output: Some(self.max_output),
+            pivot: self.activated && gp_state.pivot,
         };
         self.net.send_control(cmd);
 

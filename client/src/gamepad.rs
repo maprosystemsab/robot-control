@@ -3,6 +3,7 @@
 //!   - Höger spak vänster/höger -> styrning
 //!   - L1/L2 -> tillval A (t.ex. lastarm)
 //!   - R1/R2 -> tillval B (t.ex. tilt)
+//!   - O (håll in) -> bandvagnsvändning: höger spak vänder på stället
 //! Klienten skickar en generell signal; robotd översätter till rätt VESC
 //! utifrån sparad rollprofil, så klienten aldrig behöver känna till VESC-ID:n.
 
@@ -37,6 +38,7 @@ pub struct GamepadState {
     pub steering: f32,   // -1.0..=1.0, höger spak X
     pub accessory_a: f32, // L1/L2, -1.0..=1.0
     pub accessory_b: f32, // R1/R2, -1.0..=1.0
+    pub pivot: bool,      // O hålls in: vända på stället
     pub connected: bool,
 }
 
@@ -75,11 +77,15 @@ impl GamepadReader {
         let r1 = if gp.is_pressed(Button::RightTrigger) { 1.0 } else { 0.0 };
         let accessory_b = r1 - r2;
 
+        // O på PS4-dosan (östra knappen), samma som i RControlStation.
+        let pivot = gp.is_pressed(Button::East);
+
         GamepadState {
             throttle,
             steering,
             accessory_a,
             accessory_b,
+            pivot,
             connected: gp.is_connected(),
         }
     }

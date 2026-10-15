@@ -117,6 +117,10 @@ pub struct ControlCommand {
     /// till sitt eget tak (`drive.max_cap`). `None` = robotd:s config gäller.
     #[serde(default)]
     pub max_output: Option<f32>,
+    /// Bandvagnsvändning (RobAnt, firmware 30.6): O hålls in, styrspaken
+    /// vänder roboten på stället i stället för att styra. Gasen räknas inte.
+    #[serde(default)]
+    pub pivot: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

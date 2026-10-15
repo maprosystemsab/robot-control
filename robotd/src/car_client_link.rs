@@ -117,11 +117,14 @@ use crate::vesc_can::{self, BoardState, VescStatusEntry};
 pub struct DriveSetpoint {
     pub speed: f32,
     pub steering: f32,
+    /// Bandvagnsvändning −1…+1 (+ = medurs). Skickas i stället för styrningen;
+    /// firmwaren begränsar farten (30 %) och rätar ut bakbenen först.
+    pub pivot: f32,
 }
 
 impl DriveSetpoint {
     pub fn is_zero(&self) -> bool {
-        self.speed == 0.0 && self.steering == 0.0
+        self.speed == 0.0 && self.steering == 0.0 && self.pivot == 0.0
     }
 }
 
@@ -206,6 +209,7 @@ pub struct LinkParams {
     pub car_id: u8,
     pub speed_activity: u8,
     pub steering_activity: u8,
+    pub pivot_activity: u8,
     /// Fråga styrkortet om styrvinkeln (`vinkel`) en gång per sekund.
     pub steering_sensor: bool,
 }
@@ -454,8 +458,14 @@ async fn session(
         if should_send(sp, last_sent, now) {
             link.send_raw_payload(&vesc_can::make_rc_control_adv(p.car_id, p.speed_activity, sp.speed))
                 .await?;
-            link.send_raw_payload(&vesc_can::make_rc_control_adv(p.car_id, p.steering_activity, sp.steering))
-                .await?;
+            // Under vändning (och en gång efteråt, med 0) går spaken till vändningen.
+            if sp.pivot != 0.0 || last_sent.is_some_and(|(prev, _)| prev.pivot != 0.0) {
+                link.send_raw_payload(&vesc_can::make_rc_control_adv(p.car_id, p.pivot_activity, sp.pivot))
+                    .await?;
+            } else {
+                link.send_raw_payload(&vesc_can::make_rc_control_adv(p.car_id, p.steering_activity, sp.steering))
+                    .await?;
+            }
             last_sent = Some((sp, now));
         }
     }
@@ -550,11 +560,11 @@ mod tests {
     use tokio::net::{TcpListener, TcpStream};
 
     fn sp(speed: f32, steering: f32) -> DriveSetpoint {
-        DriveSetpoint { speed, steering }
+        DriveSetpoint { speed, steering, pivot: 0.0 }
     }
 
     fn params(addr: SocketAddr) -> LinkParams {
-        LinkParams { addr, car_id: 4, speed_activity: 10, steering_activity: 11, steering_sensor: false }
+        LinkParams { addr, car_id: 4, speed_activity: 10, steering_activity: 11, pivot_activity: 22, steering_sensor: false }
     }
 
     #[test]

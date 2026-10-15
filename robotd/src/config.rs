@@ -128,6 +128,8 @@ pub struct DriveConfig {
     pub speed_activity: u8,
     /// Aktivitet för styrning ("Steering Control" = 11).
     pub steering_activity: u8,
+    /// Aktivitet för bandvagnsvändning (firmware 30.6, RobAnt) = 22.
+    pub pivot_activity: u8,
     /// Farten vid fullt spakutslag när klienten inte skickar eget Max.
     /// Motsvarar "Max" (throttleMaxBox) i RControlStation. Hur det tolkas
     /// (duty, ström, rpm) bestäms av aktuatorns läge på kortet.
@@ -148,6 +150,7 @@ impl Default for DriveConfig {
         Self {
             speed_activity: 10,
             steering_activity: 11,
+            pivot_activity: 22,
             speed_max: 0.30,
             steering_max: 0.8,
             max_cap: 1.0,
