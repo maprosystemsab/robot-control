@@ -52,7 +52,7 @@ extern float frontangle;
 
 static float m_zone_deg = 4.5;		// sakta in de sista graderna (15 % av 30°)
 static float m_slow_duty = 0.2;		// duty där inbromsningen börjar
-static float m_max_duty = 0.6;
+static float m_max_duty = 0.8;		// samma kraft som manuell styrning (spaken skickar alltid 0,8)
 static float m_min_duty = 0.08;		// minsta duty som rubbar styrningen
 // Stannar inom ±4 % av fullt utslag och börjar inte rätta igen förrän felet är
 // över 10 % (eller spaken flyttas). Utan glappet småstyrde den hela tiden kring
