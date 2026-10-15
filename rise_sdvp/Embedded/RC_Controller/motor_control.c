@@ -30,12 +30,20 @@
 #include "terminal.h"
 #include "styr_position.h"
 #include <stdio.h>
+#include <string.h>
 //#include "watchdog.h"
 
 // Current motor direction: +1 (forward) or -1 (backward)
 static volatile int current_motor_direction = 1;
 static int mode;
 static void vandning_init(void);
+#ifdef ANGLE_SENSOR_PA3
+// RobAnt: autopiloten styr bakbenen med vinkelgivaren och får differentialen
+// (se längre ner, vid differentialen).
+static bool ap_styr_bakben(float steering_angle_rad);
+static void ap_diff_rpm(float rpm, float *rpm_l, float *rpm_r);
+static volatile bool m_ap_kan_styra = true;
+#endif
 
 // Safe float printing function for embedded systems
 void print_float_safe(const char* name, float value) {
@@ -407,6 +415,10 @@ void motor_set_steering_autopilot(float steering_angle, float circle_radius) {
                             / main_config.vehicle.steering_range)
                             + main_config.vehicle.steering_center;
             servo_simple_set_pos_ramp(servo_pos, true);
+        #elif defined(ANGLE_SENSOR_PA3)
+            // RobAnt: bakbenen till autopilotens vinkel med vinkelstyrningen.
+            // Går det inte (ingen givare) stannar autopiloten i stället för att köra rakt.
+            m_ap_kan_styra = ap_styr_bakben(steering_angle);
         #else
             #if HAS_DIFF_STEERING
                 // Use generic steering control with frontangle feedback
@@ -451,11 +463,19 @@ void motor_set_speed_autopilot(float speed) {
         #else
             #ifdef VESC_LEFT
                 float rpm = motor_rpm(speed);
+                float rpm_l = rpm, rpm_r = rpm;
+                #ifdef ANGLE_SENSOR_PA3
+                if (!m_ap_kan_styra) {
+                    rpm_l = rpm_r = 0.0;	// kan inte styra: stå still hellre än köra rakt
+                } else {
+                    ap_diff_rpm(rpm, &rpm_l, &rpm_r);
+                }
+                #endif
                 comm_can_lock_vesc();
                 comm_can_set_vesc_id(VESC_LEFT);
-                bldc_interface_set_rpm((int)(rpm));
+                bldc_interface_set_rpm((int)(rpm_l));
                 comm_can_set_vesc_id(VESC_RIGHT);
-                bldc_interface_set_rpm((int)(rpm));
+                bldc_interface_set_rpm((int)(rpm_r));
                 comm_can_unlock_vesc();
             #endif
         #endif
@@ -631,6 +651,120 @@ static THD_FUNCTION(vandning_thread, arg) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// RobAnt: elektronisk differential (firmware 30.8). I en sväng går innersidan
+// en kortare båge än yttersidan. Bakbensstyrd: vridningscentrum ligger på
+// framaxelns linje, R = hjulbas / tan(styrvinkel) från mitten. Yttersidan får
+// spakens fart, innersidan (R − spårvidd/2) / (R + spårvidd/2) av den.
+// m_diff_gain förstärker inbromsningen av innersidan (0 = ren geometri).
+// Kräver vinkelgivaren (OK och kalibrerad); annars samma fart på båda sidor.
+// ---------------------------------------------------------------------------
+static bool m_diff_pa = true;
+static float m_diff_hjulbas = 1.37f;   // m, fram- till bakaxel (RobAnt originalmått)
+static float m_diff_sparvidd = 1.25f;  // m, mellan vänster och höger hjul
+static float m_diff_gain = 0.0f;
+
+/** Innersidans andel av yttersidans fart vid styrvinkeln (grader). 1 = rakt. */
+static float diff_innerandel(float vinkel_deg) {
+	float t = tanf(fabsf(vinkel_deg) * (float)M_PI / 180.0f);
+	if (t < 1e-3f || m_diff_hjulbas <= 0.0f) {
+		return 1.0f;
+	}
+	float r = m_diff_hjulbas / t;
+	float h = m_diff_sparvidd / 2.0f;
+	float andel = (r > h) ? (r - h) / (r + h) : 0.0f;
+	andel = 1.0f - (1.0f - andel) * (1.0f + m_diff_gain);
+	utils_truncate_number(&andel, 0.0f, 1.0f);
+	return andel;
+}
+
+static void skicka_fart(float fart) {
+	if (!m_diff_pa || !styrpos_vinkel_giltig()) {
+		skicka_sidor(fart, fart);
+		return;
+	}
+	float v = frontangle;	// + = höger: höger sida är innersidan
+	float inre = fart * diff_innerandel(v);
+	if (v > 0.0f) {
+		skicka_sidor(fart, inre);
+	} else {
+		skicka_sidor(inre, fart);
+	}
+}
+
+#ifdef ANGLE_SENSOR_PA3
+// Autopilotens vinkel räknas matematiskt (+ = vänster); vinkelgivaren har + = höger.
+// Tecknet kan bytas med `diff aptecken` om autopiloten svänger åt fel håll.
+static float m_ap_tecken = -1.0f;
+static systime_t m_ap_varnat = 0;
+
+static bool ap_styr_bakben(float steering_angle_rad) {
+	float deg = steering_angle_rad * 180.0f / (float)M_PI * m_ap_tecken;
+	bool ok = false;
+	for (int i = 0; i < main_config.vehicle.actuators && i < 4; i++) {
+		ACTUATOR *a = &main_config.vehicle.actuator[i];
+		if (a->activity == ACT_NR_STYRNING && a->type == AT_VESCMOTOR) {
+			ok = styrpos_target_deg(a->motorid, deg) || ok;
+		}
+	}
+	if (!ok && chVTTimeElapsedSinceX(m_ap_varnat) > S2ST(5)) {
+		m_ap_varnat = chVTGetSystemTimeX();
+		commands_printf("Autopilot: kan inte styra (vinkelgivaren ej OK/kalibrerad, eller styrlage duty). Står still.");
+	}
+	return ok;
+}
+
+static void ap_diff_rpm(float rpm, float *rpm_l, float *rpm_r) {
+	*rpm_l = rpm;
+	*rpm_r = rpm;
+	if (!m_diff_pa || !styrpos_vinkel_giltig()) {
+		return;
+	}
+	float inre = rpm * diff_innerandel(frontangle);
+	if (frontangle > 0.0f) {
+		*rpm_r = inre;
+	} else {
+		*rpm_l = inre;
+	}
+}
+#endif
+
+static void terminal_diff(int argc, const char **argv) {
+	if (argc >= 2) {
+		if (strcmp(argv[1], "pa") == 0) {
+			m_diff_pa = true;
+		} else if (strcmp(argv[1], "av") == 0) {
+			m_diff_pa = false;
+		} else if (argc >= 3) {
+			float x = 0.0f;
+			if (sscanf(argv[2], "%f", &x) == 1) {
+				if (strcmp(argv[1], "hjulbas") == 0 && x > 0.2f && x < 5.0f) {
+					m_diff_hjulbas = x;
+				} else if (strcmp(argv[1], "sparvidd") == 0 && x > 0.2f && x < 5.0f) {
+					m_diff_sparvidd = x;
+				} else if (strcmp(argv[1], "gain") == 0 && x >= 0.0f && x <= 2.0f) {
+					m_diff_gain = x;
+				}
+#ifdef ANGLE_SENSOR_PA3
+				else if (strcmp(argv[1], "aptecken") == 0 && x != 0.0f) {
+					m_ap_tecken = x > 0.0f ? 1.0f : -1.0f;
+				}
+#endif
+			}
+		}
+	}
+	commands_printf("Differential: %s, hjulbas %.2f m, spårvidd %.2f m, gain %.2f. "
+			"Innersidan vid 10° %.0f %%, 20° %.0f %%, 30° %.0f %%. Givare %s. Nollställs vid omstart.",
+			m_diff_pa ? "PÅ" : "AV", (double)m_diff_hjulbas, (double)m_diff_sparvidd, (double)m_diff_gain,
+			(double)(100.0f * diff_innerandel(10.0f)), (double)(100.0f * diff_innerandel(20.0f)),
+			(double)(100.0f * diff_innerandel(30.0f)),
+			styrpos_vinkel_giltig() ? "OK" : "saknas/okalibrerad: samma fart båda sidor");
+#ifdef ANGLE_SENSOR_PA3
+	commands_printf("Autopilot: styr bakbenen med vinkelgivaren, tecken %+.0f (diff aptecken 1/-1), %s.",
+			(double)m_ap_tecken, m_ap_kan_styra ? "kan styra" : "KAN INTE STYRA (står still)");
+#endif
+}
+
 bool motor_rc_adv(uint8_t activity, float value) {
 	if (!sidor_konfigurerade()) {
 		return false; // som förut
@@ -649,7 +783,7 @@ bool motor_rc_adv(uint8_t activity, float value) {
 			m_vand_ut = 0.0f;
 			m_vand_aktiv = false;
 		}
-		skicka_sidor(value, value);
+		skicka_fart(value);
 		return true;
 
 	case ACT_NR_STYRNING:
@@ -710,6 +844,13 @@ static void vandning_init(void) {
 			"  ramp - sekunder fran 0 till max (standard 0.7)",
 			"[max] [ramp]",
 			terminal_vandning);
+	terminal_register_command_callback(
+			"diff",
+			"Elektronisk differential (RobAnt): innersidan saktar in i svang.\n"
+			"  pa|av, hjulbas X, sparvidd X (meter), gain X (0 = ren geometri),\n"
+			"  aptecken 1|-1 (autopilotens svangriktning)",
+			"[pa|av|hjulbas X|sparvidd X|gain X|aptecken 1|-1]",
+			terminal_diff);
 }
 
 // Function to get actuators by activity

@@ -286,7 +286,15 @@ static bool angle_cal_mv(float *c, float *r, float *l) {
  * senaste vinkeln och statusen blir "fel".
  */
 void adconv_update_angle(void) {
-	float mv = angle_mv_filter;
+	// Extra lågpass (var 10:e ms, tidskonstant ca 0,15 s): med VESC:erna strömsatta
+	// brusade vinkeln ±1° (mk1 2026-10-15) och syntes som hopp i Robotstyrning.
+	static float mv_lugn = -1.0;
+	if (mv_lugn < 0.0 || fabsf(angle_mv_filter - mv_lugn) > 400.0) {
+		mv_lugn = angle_mv_filter;	// start, eller givaren kopplad/bortkopplad: följ direkt
+	} else {
+		UTILS_LP_FAST(mv_lugn, angle_mv_filter, 0.065);
+	}
+	float mv = mv_lugn;
 	last_sensorvalue = (uint16_t)(mv < 0.0 ? 0.0 : mv);	// mV, skickas med i statusen
 
 	if (mv < ANGLE_SENSOR_MIN_MV) {
