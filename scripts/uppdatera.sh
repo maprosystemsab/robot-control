@@ -4,7 +4,7 @@
 # styrkorten uppdaterar vi på distans med det här skriptet.
 #
 #   bash scripts/uppdatera.sh                                   datorn + roboten
-#   PI=anvandare@192.168.200.x bash scripts/uppdatera.sh        annan robot (sparas)
+#   PI=anvandare@192.168.200.x bash scripts/uppdatera.sh        välj robot (sparas; krävs första gången)
 #
 # Datorn först: RControlStation måste känna till styrkortets nya firmwareversion
 # innan kortet flashas, annars kopplar den ner direkt. Roboten: koden (bara filerna i
@@ -58,14 +58,24 @@ fi
 
 # --- 2. Robotens Pi och styrkortet ------------------------------------------------------
 steg "Roboten (Pi:n och styrkortet)"
-PI="${PI:-$(cat "$KONF/pi" 2>/dev/null || echo robant@192.168.200.10)}"
-echo "Robot: $PI"
+# Ingen standardrobot: att av misstag uppdatera fel robot (t.ex. en kunds) är värre
+# än att behöva skriva PI= första gången. Sedan används den senast valda.
+PI="${PI:-$(cat "$KONF/pi" 2>/dev/null)}"
+if [ -z "$PI" ]; then
+  echo -e "${RED}Ingen robot vald. Kör en gång med roboten angiven, t.ex.:${NC}"
+  echo "  PI=robant1@192.168.200.14 bash scripts/uppdatera.sh"
+  RESULTAT+=("Roboten: FEL, ingen robot vald (PI=…)")
+  PI=""
+fi
+echo "Robot: ${PI:-(ingen)}"
 # En och samma ssh-anslutning för allt, så att lösenordet bara behövs en gång.
 SOCK="$(mktemp -u /tmp/uppdatera_ssh.XXXXXX)"
 # accept-new: första gången godkänns robotens nyckel utan yes/no-fråga (en ändrad
 # nyckel stoppas fortfarande).
 SSH=(ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -o ControlMaster=auto -o ControlPath="$SOCK" -o ControlPersist=600)
-if ! "${SSH[@]}" -o ServerAliveInterval=15 "$PI" true; then
+if [ -z "$PI" ]; then
+  :
+elif ! "${SSH[@]}" -o ServerAliveInterval=15 "$PI" true; then
   echo -e "${RED}Når inte roboten ($PI). Är den påslagen och WireGuard uppe?${NC}"
   RESULTAT+=("Roboten: FEL, gick inte att nå")
 else
