@@ -1,4 +1,6 @@
 [workspace]
+# rise_sdvp/ har egna Rust-program (t.ex. Linux/StatusSkarm) som byggs för sig.
+exclude = ["rise_sdvp"]
 resolver = "2"
 members = [
     "relay-protocol",
