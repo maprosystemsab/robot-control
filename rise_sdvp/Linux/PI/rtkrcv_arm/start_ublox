@@ -4,4 +4,11 @@
 # (/usr/bin/rtkrcv, installeras av install_pi.sh). Utan detta startade rtklib-sessionen
 # aldrig på nya Pi:ar (MacBot SLU 2026-09-28) och ingen position kom på port 2948.
 if [ -x ./rtkrcv ]; then RTKRCV=./rtkrcv; else RTKRCV=rtkrcv; fi
+# Car_Client stänger den gamla rtklib-sessionen och startar en ny direkt. Hann den
+# gamla rtkrcv inte släppa port 2948 fick den nya "bind error (98)" och stod still
+# utan position (mk1 2026-10-15). Vänta tills porten är ledig (högst 15 s).
+for _ in $(seq 1 30); do
+  ss -tln 2>/dev/null | grep -q ":2948 " || break
+  sleep 0.5
+done
 $RTKRCV -o rover_ublox.conf -s

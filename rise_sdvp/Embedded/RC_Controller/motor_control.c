@@ -29,6 +29,7 @@
 #include "servo_simple.h"
 #include "terminal.h"
 #include "styr_position.h"
+#include "pos.h"
 #include <stdio.h>
 #include <string.h>
 //#include "watchdog.h"
@@ -41,7 +42,7 @@ static void vandning_init(void);
 // RobAnt: autopiloten styr bakbenen med vinkelgivaren och får differentialen
 // (se längre ner, vid differentialen).
 static bool ap_styr_bakben(float steering_angle_rad);
-static void ap_diff_rpm(float rpm, float *rpm_l, float *rpm_r);
+static void ap_fart(float speed);
 static volatile bool m_ap_kan_styra = true;
 #endif
 
@@ -461,21 +462,18 @@ void motor_set_speed_autopilot(float speed) {
             bldc_interface_set_rpm((int)rpm_r);
             comm_can_unlock_vesc();
         #else
-            #ifdef VESC_LEFT
+            #if defined(ANGLE_SENSOR_PA3)
+                // RobAnt: duty med återkoppling från hastighetsgivaren (se ap_fart).
+                // Varvtal (RPM) fungerade inte: hydraulpumpen behöver ~87 000 ERPM för
+                // 3 km/h men fordonsinställningarna gav ~255.
+                ap_fart(speed);
+            #elif defined(VESC_LEFT)
                 float rpm = motor_rpm(speed);
-                float rpm_l = rpm, rpm_r = rpm;
-                #ifdef ANGLE_SENSOR_PA3
-                if (!m_ap_kan_styra) {
-                    rpm_l = rpm_r = 0.0;	// kan inte styra: stå still hellre än köra rakt
-                } else {
-                    ap_diff_rpm(rpm, &rpm_l, &rpm_r);
-                }
-                #endif
                 comm_can_lock_vesc();
                 comm_can_set_vesc_id(VESC_LEFT);
-                bldc_interface_set_rpm((int)(rpm_l));
+                bldc_interface_set_rpm((int)(rpm));
                 comm_can_set_vesc_id(VESC_RIGHT);
-                bldc_interface_set_rpm((int)(rpm_r));
+                bldc_interface_set_rpm((int)(rpm));
                 comm_can_unlock_vesc();
             #endif
         #endif
@@ -595,6 +593,58 @@ static void skicka_sidor(float vanster, float hoger) {
 	skicka_till(ACT_NR_FART_HOGER, hoger);
 }
 
+// ---------------------------------------------------------------------------
+// RobAnt: mjuk gas på drivsidorna (firmware 30.14). Hydraulpumpen drog så mycket
+// ström vid språng från stillastående (t.ex. 0 -> 0,77 duty) att VESC:en löste ut
+// FAULT_CODE_ABS_OVER_CURRENT (mk1 2026-10-15, framför allt med RCS som skickar
+// spaken utan ramp). Sidornas duty ändras högst m_ramp_upp/s bort från noll och
+// m_ramp_ned/s mot noll. Kommer inga fartkommandon på FART_TIMEOUT_MS går målet
+// till 0, så att VESC:ernas egen timeout inte sätts ur spel.
+// ---------------------------------------------------------------------------
+#define FART_TIMEOUT_MS 500
+static float m_ramp_upp = 1.0f;		// duty/s: 0 -> 0,7 på 0,7 s
+static float m_ramp_ned = 2.5f;		// duty/s mot noll (släppt gas, bromsning)
+static volatile float m_fart_mal_v = 0.0f, m_fart_mal_h = 0.0f;
+static volatile systime_t m_fart_mal_tid = 0;
+static float m_fart_ut_v = 0.0f, m_fart_ut_h = 0.0f;
+static bool m_fart_skickad_noll = true;
+
+static float ramp_steg(float ut, float mal, float dt) {
+	if (ut == mal) {
+		return ut;
+	}
+	// Bort från noll (samma tecken och större): långsamt. Annars mot noll: fortare.
+	bool upp = (mal > 0.0f && ut >= 0.0f && mal > ut) || (mal < 0.0f && ut <= 0.0f && mal < ut);
+	float steg = (upp ? m_ramp_upp : m_ramp_ned) * dt;
+	if (!upp && ((ut > 0.0f && mal < 0.0f) || (ut < 0.0f && mal > 0.0f))) {
+		mal = 0.0f;	// byte av riktning: först ner till noll
+	}
+	if (ut < mal) {
+		return (ut + steg > mal) ? mal : ut + steg;
+	}
+	return (ut - steg < mal) ? mal : ut - steg;
+}
+
+/** Ett steg av gasrampen (anropas var 20:e ms när ingen vändning pågår). */
+static void fart_ramp(float dt) {
+	float mv = m_fart_mal_v, mh = m_fart_mal_h;
+	if (ST2MS(chVTTimeElapsedSinceX(m_fart_mal_tid)) > FART_TIMEOUT_MS) {
+		mv = mh = 0.0f;
+	}
+	if (m_ramp_upp <= 0.0f) {	// rampen avslagen: direkt
+		m_fart_ut_v = mv;
+		m_fart_ut_h = mh;
+	} else {
+		m_fart_ut_v = ramp_steg(m_fart_ut_v, mv, dt);
+		m_fart_ut_h = ramp_steg(m_fart_ut_h, mh, dt);
+	}
+	bool noll = m_fart_ut_v == 0.0f && m_fart_ut_h == 0.0f;
+	if (!noll || !m_fart_skickad_noll) {
+		skicka_sidor(m_fart_ut_v, m_fart_ut_h);
+		m_fart_skickad_noll = noll;
+	}
+}
+
 static THD_FUNCTION(vandning_thread, arg) {
 	(void)arg;
 	chRegSetThreadName("Vandning");
@@ -604,8 +654,15 @@ static THD_FUNCTION(vandning_thread, arg) {
 		chThdSleepMilliseconds(20);
 
 		if (!m_vand_aktiv) {
+			if (sidor_konfigurerade()) {
+				fart_ramp(dt);
+			}
 			continue;
 		}
+		// Under vändningen styr den sidorna; gasrampen börjar om från noll efteråt.
+		m_fart_ut_v = m_fart_ut_h = 0.0f;
+		m_fart_mal_v = m_fart_mal_h = 0.0f;
+		m_fart_skickad_noll = true;
 
 		float mal = m_vand_mal;
 		if (ST2MS(chVTTimeElapsedSinceX(m_vand_senast)) > VANDNING_TIMEOUT_MS) {
@@ -679,17 +736,20 @@ static float diff_innerandel(float vinkel_deg) {
 }
 
 static void skicka_fart(float fart) {
-	if (!m_diff_pa || !styrpos_vinkel_giltig()) {
-		skicka_sidor(fart, fart);
-		return;
+	float vanster = fart, hoger = fart;
+	if (m_diff_pa && styrpos_vinkel_giltig()) {
+		float v = frontangle;	// + = höger: höger sida är innersidan
+		float inre = fart * diff_innerandel(v);
+		if (v > 0.0f) {
+			hoger = inre;
+		} else {
+			vanster = inre;
+		}
 	}
-	float v = frontangle;	// + = höger: höger sida är innersidan
-	float inre = fart * diff_innerandel(v);
-	if (v > 0.0f) {
-		skicka_sidor(fart, inre);
-	} else {
-		skicka_sidor(inre, fart);
-	}
+	// Gasrampen (vändningstråden) skickar till VESC:erna.
+	m_fart_mal_v = vanster;
+	m_fart_mal_h = hoger;
+	m_fart_mal_tid = chVTGetSystemTimeX();
 }
 
 #ifdef ANGLE_SENSOR_PA3
@@ -714,18 +774,45 @@ static bool ap_styr_bakben(float steering_angle_rad) {
 	return ok;
 }
 
-static void ap_diff_rpm(float rpm, float *rpm_l, float *rpm_r) {
-	*rpm_l = rpm;
-	*rpm_r = rpm;
-	if (!m_diff_pa || !styrpos_vinkel_giltig()) {
+// Autopilotens fart på RobAnt: framkoppling (duty = fart / m_ap_ms_per_duty) plus
+// en långsam I-del på skillnaden mot hastighetsgivaren. Går ut som manuell gas
+// (skicka_fart): differential och gasramp med 20/21, annars direkt duty.
+static float m_ap_ms_per_duty = 1.27f;	// mk1: 0,7 duty -> ca 3,2 km/h
+static float m_ap_ki = 0.15f;			// duty per (m/s) och sekund
+static float m_ap_i = 0.0f;
+static systime_t m_ap_t = 0;
+
+static void ap_fart(float speed) {
+	float dt = ST2MS(chVTTimeElapsedSinceX(m_ap_t)) / 1000.0f;
+	m_ap_t = chVTGetSystemTimeX();
+	if (dt > 0.2f) {
+		dt = 0.2f;
+	}
+	float duty = 0.0f;
+	if (m_ap_kan_styra && fabsf(speed) >= 0.05f) {
+		float fel = speed - pos_get_speed();
+		m_ap_i += m_ap_ki * fel * dt;
+		utils_truncate_number_abs(&m_ap_i, 0.3f);
+		duty = speed / m_ap_ms_per_duty + m_ap_i;
+		utils_truncate_number(&duty, -0.8f, 0.8f);
+	} else {
+		m_ap_i = 0.0f;	// står still, eller kan inte styra: stå still hellre än köra rakt
+	}
+	if (sidor_konfigurerade()) {
+		skicka_fart(duty);
 		return;
 	}
-	float inre = rpm * diff_innerandel(frontangle);
-	if (frontangle > 0.0f) {
-		*rpm_r = inre;
-	} else {
-		*rpm_l = inre;
+	float v = duty, h = duty;
+	if (m_diff_pa && styrpos_vinkel_giltig()) {
+		float inre = duty * diff_innerandel(frontangle);
+		if (frontangle > 0.0f) {
+			h = inre;
+		} else {
+			v = inre;
+		}
 	}
+	motor_set_vesc_value(VESC_LEFT, v, MOTOR_CONTROL_DUTY);
+	motor_set_vesc_value(VESC_RIGHT, h, MOTOR_CONTROL_DUTY);
 }
 #endif
 
@@ -745,9 +832,22 @@ static void terminal_diff(int argc, const char **argv) {
 				} else if (strcmp(argv[1], "gain") == 0 && x >= 0.0f && x <= 2.0f) {
 					m_diff_gain = x;
 				}
+				else if (strcmp(argv[1], "ramp") == 0 && x >= 0.0f && x <= 10.0f) {
+					m_ramp_upp = x;	// 0 = av
+					if (argc >= 4) {
+						float y = 0.0f;
+						if (sscanf(argv[3], "%f", &y) == 1 && y > 0.0f && y <= 20.0f) {
+							m_ramp_ned = y;
+						}
+					}
+				}
 #ifdef ANGLE_SENSOR_PA3
 				else if (strcmp(argv[1], "aptecken") == 0 && x != 0.0f) {
 					m_ap_tecken = x > 0.0f ? 1.0f : -1.0f;
+				} else if (strcmp(argv[1], "apfart") == 0 && x > 0.1f && x < 20.0f) {
+					m_ap_ms_per_duty = x;
+				} else if (strcmp(argv[1], "api") == 0 && x >= 0.0f && x < 5.0f) {
+					m_ap_ki = x;
 				}
 #endif
 			}
@@ -759,9 +859,13 @@ static void terminal_diff(int argc, const char **argv) {
 			(double)(100.0f * diff_innerandel(10.0f)), (double)(100.0f * diff_innerandel(20.0f)),
 			(double)(100.0f * diff_innerandel(30.0f)),
 			styrpos_vinkel_giltig() ? "OK" : "saknas/okalibrerad: samma fart båda sidor");
+	commands_printf("Gasramp: %.2f duty/s upp, %.2f duty/s ned (diff ramp UPP [NED], 0 = av). Nu V %.2f H %.2f.",
+			(double)m_ramp_upp, (double)m_ramp_ned, (double)m_fart_ut_v, (double)m_fart_ut_h);
 #ifdef ANGLE_SENSOR_PA3
-	commands_printf("Autopilot: styr bakbenen med vinkelgivaren, tecken %+.0f (diff aptecken 1/-1), %s.",
-			(double)m_ap_tecken, m_ap_kan_styra ? "kan styra" : "KAN INTE STYRA (står still)");
+	commands_printf("Autopilot: styr bakbenen med vinkelgivaren, tecken %+.0f (diff aptecken 1/-1), %s. "
+			"Fart med duty: %.2f m/s per duty (diff apfart X), I %.2f (diff api X), mätt fart %.2f m/s.",
+			(double)m_ap_tecken, m_ap_kan_styra ? "kan styra" : "KAN INTE STYRA (står still)",
+			(double)m_ap_ms_per_duty, (double)m_ap_ki, (double)pos_get_speed());
 #endif
 }
 
@@ -779,6 +883,10 @@ bool motor_rc_adv(uint8_t activity, float value) {
 				return true; // vändningen styr sidorna
 			}
 			// Gas under vändning: avbryt vändningen, vanlig körning tar över
+			// (gasrampen börjar där vändningen var, inget språng).
+			m_fart_ut_v = m_vand_ut;
+			m_fart_ut_h = -m_vand_ut;
+			m_fart_skickad_noll = false;
 			m_vand_mal = 0.0f;
 			m_vand_ut = 0.0f;
 			m_vand_aktiv = false;
@@ -848,8 +956,8 @@ static void vandning_init(void) {
 			"diff",
 			"Elektronisk differential (RobAnt): innersidan saktar in i svang.\n"
 			"  pa|av, hjulbas X, sparvidd X (meter), gain X (0 = ren geometri),\n"
-			"  aptecken 1|-1 (autopilotens svangriktning)",
-			"[pa|av|hjulbas X|sparvidd X|gain X|aptecken 1|-1]",
+			"  aptecken 1|-1 (autopilotens svangriktning), ramp UPP [NED] (duty/s, 0 = av)",
+			"[pa|av|hjulbas X|sparvidd X|gain X|aptecken 1|-1|ramp UPP [NED]]",
 			terminal_diff);
 }
 

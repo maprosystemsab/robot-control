@@ -104,6 +104,8 @@ float debugvalue13;  // Debug value 13 (general purpose)
 float debugvalue14;  // Debug value 14 (general purpose)
 float debugvalue15;  // Debug value 15 (general purpose)
 float frontangle=0.0; // Front angle from sensor (degrees)
+// Senaste CMD_RC_CONTROL_ADV (se CMD_RC_CONTROL: det gamla ignoreras då på RobAnt).
+static systime_t m_adv_senast = 0;
 static bool arduino_connected = false; // Flag indicating if Arduino is connected
 bool m_kb_active; // Flag indicating if keyboard control is active
 
@@ -1233,6 +1235,19 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			// steering *= autopilot_get_steering_scale();
 
 			autopilot_set_active(false);
+#ifdef IS_ROBANT
+			// RControlStation skickar detta gamla kommando (tangentbordsstyrningen)
+			// parallellt med CMD_RC_CONTROL_ADV när dosan är aktiverad. Det styr
+			// styr-VESC:en direkt, förbi vändning, självcentrering och differential
+			// (mk1 2026-10-15: bakbenen vek sig under bandvagnsvändning i RCS).
+			// Kommer ADV-kommandon används bara de; utan dosa (bara tangentbord)
+			// fungerar det gamla som förut.
+			// 30 s: RCS skickar ADV bara när spaken rör sig (och upprepar värden ≠ 0),
+			// så efter att spaken släppts kommer inga ADV på ett tag.
+			if (m_adv_senast != 0 && chVTTimeElapsedSinceX(m_adv_senast) < S2ST(30)) {
+				break;
+			}
+#endif
 			debugvalue=mode;
 			motor_set_mode(mode);
 			if (!main_config.vehicle.disable_motor) {
@@ -1254,6 +1269,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			break;
 		case CMD_RC_CONTROL_ADV: {
 			timeout_reset();
+			m_adv_senast = chVTGetSystemTimeX();
 			uint32_t activity;
 			float magnitude;
 			int32_t ind = 0;
