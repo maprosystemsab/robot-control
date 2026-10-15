@@ -232,13 +232,15 @@ fn ffmpeg_args(cfg: &VideoConfig) -> Vec<String> {
     let mut a: Vec<String> = vec![
         s("-hide_banner"), s("-loglevel"), s("error"), s("-nostdin"),
         s("-fflags"), s("nobuffer"),
-        s("-f"), s("v4l2"), s("-input_format"), s("mjpeg"),
+        s("-f"), s("v4l2"), s("-input_format"), cfg.input_format.clone(),
         s("-video_size"), format!("{}x{}", cfg.width, cfg.height),
         s("-framerate"), cfg.fps.to_string(),
         s("-i"), cfg.device.clone(),
-        s("-pix_fmt"), s("yuv420p"),
-        s("-fps_mode"), s("passthrough"),
     ];
+    if cfg.stereo_left_only {
+        a.extend([s("-vf"), s("crop=iw/2:ih:0:0")]);
+    }
+    a.extend([s("-pix_fmt"), s("yuv420p"), s("-fps_mode"), s("passthrough")]);
     if cfg.encoder == "libx264" {
         a.extend([
             s("-c:v"), s("libx264"), s("-preset"), s("ultrafast"), s("-tune"), s("zerolatency"),
@@ -439,6 +441,21 @@ mod tests {
         let a = joined(&cfg);
         assert!(a.contains("-c:v libx264 -preset ultrafast -tune zerolatency"), "{a}");
         assert!(a.contains("-b:v 600k -maxrate 600k -bufsize 300k"), "{a}");
+    }
+
+    #[test]
+    fn stereo_camera_left_eye() {
+        let cfg = VideoConfig {
+            input_format: "yuyv422".into(),
+            stereo_left_only: true,
+            width: 2560,
+            height: 720,
+            ..VideoConfig::default()
+        };
+        let a = joined(&cfg);
+        assert!(a.contains("-input_format yuyv422 -video_size 2560x720"), "{a}");
+        assert!(a.contains("-vf crop=iw/2:ih:0:0 -pix_fmt yuv420p"), "{a}");
+        assert!(!joined(&VideoConfig::default()).contains("crop"));
     }
 
     #[tokio::test]

@@ -180,6 +180,12 @@ pub struct VideoConfig {
     /// `h264_v4l2m2m` (Pi 4:s hårdvarukodare, nästan ingen CPU) eller
     /// `libx264` (mjukvara, som reserv om hårdvarukodaren krånglar).
     pub encoder: String,
+    /// Kamerans bildformat för V4L2: `mjpeg` (vanliga webbkameror) eller
+    /// `yuyv422` (t.ex. ZED 2, som bara skickar okomprimerat).
+    pub input_format: String,
+    /// Stereokamera (ZED 2): bilden har båda ögonen bredvid varandra, skicka
+    /// bara vänstra halvan. `width` är då hela bredden (t.ex. 2560 för 2×1280).
+    pub stereo_left_only: bool,
 }
 
 impl Default for VideoConfig {
@@ -193,6 +199,8 @@ impl Default for VideoConfig {
             fps: 15,
             bitrate_kbps: 900,
             encoder: "h264_v4l2m2m".to_string(),
+            input_format: "mjpeg".to_string(),
+            stereo_left_only: false,
         }
     }
 }
