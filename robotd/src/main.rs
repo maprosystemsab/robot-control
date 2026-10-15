@@ -256,7 +256,8 @@ async fn main() {
                     status_count += 1;
                     if drive_log.is_open() && status_count % 2 == 0 {
                         let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-                        drive_log.write(&drive_log::row(&now, last_activated, target_throttle, target_steering, &status));
+                        let vescs = drive_log::vesc_text(&telemetry.vescs);
+                        drive_log.write(&drive_log::row(&now, last_activated, target_throttle, target_steering, &status, &vescs));
                     }
 
                     // Aldrig vänta på nätverket här — hellre tappa en status.

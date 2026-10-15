@@ -14,7 +14,7 @@ use relay_protocol::{DriveLogInfo, StatusUpdate};
 
 pub const HEADER: &str = "tid;aktiverad;gas;styr;fart_kmh;spanning_v;batteri_procent;laddar;effekt_w;\
 wh_per_km;rackvidd_km;styrvinkel_grad;styrning_procent;roll_grad;pitch_grad;kurs_grad;vesc_temp_c;\
-vesc_svarar;fel;rssi_dbm;signal";
+vesc_svarar;fel;rssi_dbm;signal;vesc_duty_rpm";
 
 /// Största fil som skickas till klienten (en hel dag ≈ 86 400 rader ≈ 10 MB).
 const MAX_SEND_BYTES: u64 = 16 * 1024 * 1024;
@@ -89,7 +89,15 @@ fn clean(s: &str) -> String {
 }
 
 /// En rad i loggen från statusen och förarens senaste kommando.
-pub fn row(time: &str, activated: bool, throttle: f32, steering: f32, s: &StatusUpdate) -> String {
+/// VESC:ernas duty och varvtal, t.ex. "28:0.30/1520 36:0.18/910" (för att se
+/// differentialen: vänster och höger sida i samma rad som styrvinkeln).
+pub fn vesc_text(vescs: &[crate::vesc_can::VescStatusEntry]) -> String {
+    let mut v: Vec<_> = vescs.iter().filter(|e| e.is_fresh()).collect();
+    v.sort_by_key(|e| e.can_id);
+    v.iter().map(|e| format!("{}:{:.2}/{}", e.can_id, e.duty, e.rpm)).collect::<Vec<_>>().join(" ")
+}
+
+pub fn row(time: &str, activated: bool, throttle: f32, steering: f32, s: &StatusUpdate, vesc_values: &str) -> String {
     let temp = s.vesc_temps_c.iter().copied().reduce(f32::max);
     let vescs = s.vescs_responding.iter().map(u8::to_string).collect::<Vec<_>>().join(" ");
     let fault = s.fault_text.clone().or_else(|| s.last_error.clone()).unwrap_or_default();
@@ -115,6 +123,7 @@ pub fn row(time: &str, activated: bool, throttle: f32, steering: f32, s: &Status
         clean(&fault),
         opt(s.rssi_dbm),
         clean(s.signal_info.as_deref().unwrap_or("")),
+        clean(vesc_values),
     ]
     .join(";")
 }
@@ -196,7 +205,7 @@ mod tests {
             rssi_dbm: Some(-71),
             ..Default::default()
         };
-        let r = row("2026-10-05 14:03:22", true, 0.5, -0.25, &s);
+        let r = row("2026-10-05 14:03:22", true, 0.5, -0.25, &s, "28:0.30/1520 36:0.18/910");
         assert_eq!(r.split(';').count(), HEADER.split(';').count(), "{r}");
         assert!(r.contains(";3.2;48.25;50.0;ja;"));
         assert!(r.contains(";90 87;Underspänning  ladda;-71;"));
