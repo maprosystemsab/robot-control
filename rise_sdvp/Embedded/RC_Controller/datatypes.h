@@ -244,6 +244,7 @@ typedef enum {
     CMD_GET_VESC_STATUS = 140,  // NY: lista VESC-ID:n som hörts på CAN + senaste status
     CMD_PING_VESC_CAN = 141,    // NY: pinga ID 0-253 på CAN (som VESC Tool) och lista de som svarar
     CMD_TEST_SPIN_VESC = 142,   // NY: provsnurr, en VESC 30 % duty i 1 s (maskinen upphissad)
+    CMD_GET_VINKEL = 143,       // NY 30.11: vinkelgivaren (mV, grader, status) utan att nollställa säkerhetstiden
 
 	// Mote commands
 	CMD_MOTE_UBX_START_BASE = 200,

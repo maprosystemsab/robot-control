@@ -1166,6 +1166,29 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			commands_send_packet(m_send_buffer, send_index);
 		} break;
 
+		case CMD_GET_VINKEL: {
+			// Bara läsning, för statusskärmen: ingen timeout_reset() (annars skulle
+			// kortet aldrig stoppa om förarens länk dör) och ingen ny send_func
+			// (Car_Client skickar allt kortet säger vidare till alla).
+			// Svar: [id][cmd][status u8: 0 ingen givare, 1 OK, 2 fel][kalibrerad u8]
+			//       [mV u16][grader*100 i32]
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = CMD_GET_VINKEL;
+#ifdef ANGLE_SENSOR_PA3
+			m_send_buffer[send_index++] = adconv_angle_sensor_ok() ? 1 : 2;
+			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
+			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);
+			buffer_append_int32(m_send_buffer, (int32_t)(frontangle * 100.0), &send_index);
+#else
+			m_send_buffer[send_index++] = 0;
+			m_send_buffer[send_index++] = 0;
+			buffer_append_uint16(m_send_buffer, 0, &send_index);
+			buffer_append_int32(m_send_buffer, 0, &send_index);
+#endif
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
 		case CMD_TEST_SPIN_VESC: {
 			// [vesc_id u8] -> svar [id][cmd][vesc_id][1 = startat, 0 = upptaget]
 			commands_set_send_func(func);
