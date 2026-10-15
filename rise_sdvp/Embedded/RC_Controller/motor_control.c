@@ -518,7 +518,7 @@ void motor_handle_route_end(void) {
 // ---------------------------------------------------------------------------
 #define VANDNING_TIMEOUT_MS   300
 #define VANDNING_FART_DOD     0.05f  // fartkommando under detta räknas som stillastående
-#define VANDNING_RAKT_DEG     2.0f   // bakbenen räknas som raka inom så här många grader
+#define VANDNING_RAKT_DEG     3.5f   // bakbenen räknas som raka inom så här många grader (över styrningens återstartsgräns 3°)
 #define VANDNING_CENTRERA_MS  4000   // hinner de inte bli raka på den tiden: avbryt
 
 extern float frontangle;
