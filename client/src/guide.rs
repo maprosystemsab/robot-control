@@ -17,6 +17,8 @@ const WHEELBASE_M: f32 = 1.2;
 const TRACK_M: f32 = 1.0;
 /// Största styrvinkel (grader) när bara procent finns (äldre robotd).
 const MAX_STEER_DEG: f32 = 30.0;
+/// Styrutslag (procent) under vilket linjerna visas raka.
+const STRAIGHT_PERCENT: f32 = 3.0;
 /// Hur långt fram linjen ritas (m).
 const PATH_LEN_M: f32 = 7.0;
 /// Horisonten i bilden, som andel av höjden uppifrån.
@@ -31,7 +33,11 @@ const PATH_FAINT: Color32 = Color32::from_rgba_premultiplied(160, 30, 25, 160);
 /// annars procent av största utslag. `None` om roboten inte skickar någon.
 pub fn steering_deg(s: Option<&StatusUpdate>) -> Option<f32> {
     let s = s?;
-    s.steering_deg.or_else(|| s.steering_percent.map(|p| p / 100.0 * MAX_STEER_DEG))
+    let deg = s.steering_deg.or_else(|| s.steering_percent.map(|p| p / 100.0 * MAX_STEER_DEG))?;
+    // Under 3 % utslag är det i praktiken rakt: visa raka linjer i stället för
+    // att de vickar för varje grad givaren rör sig (önskemål 2026-10-15).
+    let pct = s.steering_percent.unwrap_or(deg / MAX_STEER_DEG * 100.0);
+    Some(if pct.abs() < STRAIGHT_PERCENT { 0.0 } else { deg })
 }
 
 /// Punkt på marken (x åt höger, z framåt, meter, från framaxelns mitt) längs en
@@ -126,7 +132,7 @@ pub fn draw_topview(ui: &mut egui::Ui, deg: Option<f32>) {
     wheel(Pos2::new(c.x + dx, rear_y), rear, rear_col);
 
     let text = match deg {
-        Some(d) if d.abs() < 1.0 => "rakt".to_string(),
+        Some(d) if d == 0.0 => "rakt".to_string(),
         Some(d) => format!("{} {:.0}°", if d > 0.0 { "H" } else { "V" }, d.abs()),
         None => "ingen givare".to_string(),
     };
@@ -174,6 +180,15 @@ mod tests {
         assert_eq!(steering_deg(Some(&s)), Some(15.0));
         s.steering_deg = Some(-12.0);
         assert_eq!(steering_deg(Some(&s)), Some(-12.0));
+        assert_eq!(steering_deg(None), None);
+    }
+
+    #[test]
+    fn litet_utslag_visas_rakt() {
+        let s = StatusUpdate { steering_deg: Some(0.6), steering_percent: Some(2.0), ..Default::default() };
+        assert_eq!(steering_deg(Some(&s)), Some(0.0));
+        let s = StatusUpdate { steering_deg: Some(1.2), steering_percent: Some(4.0), ..Default::default() };
+        assert_eq!(steering_deg(Some(&s)), Some(1.2));
         assert_eq!(steering_deg(None), None);
     }
 }
