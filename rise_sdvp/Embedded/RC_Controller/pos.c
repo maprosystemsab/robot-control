@@ -38,6 +38,7 @@
 #include "comm_can.h"
 #include "hydraulic.h"
 #include "pos.h"
+#include "adconv.h"
 #include "bmi160_wrapper.h"
 #include "bmi270_wrapper.h"
 
@@ -105,6 +106,25 @@ int iDebug;
 
 static void mc_values_received(mc_values *val);
 static void vehicle_update_pos(float distance, float turn_rad_rear, float angle_diff, float speed);
+
+/**
+ * Styrvinkel (rad, matematiskt: + = vänster) för positionsberäkningen mellan
+ * GPS-uppdateringarna. RobAnt med vinkelgivare på PA3: frontangle (grader,
+ * + = höger). Förut lästes servopositionen, som på RobAnt räknades om från
+ * frontangle som om den vore en gammal AS5047-vinkel (178–240°): rakt fram blev
+ * ca −200°, så kursen snurrade och positionen hoppade när roboten rullade
+ * (autopiloten på mk1 2026-10-15).
+ */
+static float pos_steering_angle_rad(void) {
+#ifdef ANGLE_SENSOR_PA3
+	extern float frontangle;
+	return adconv_angle_sensor_ok() ? -frontangle * (float)M_PI / 180.0f : 0.0f;
+#else
+	return (servo_simple_get_pos_now() - main_config.vehicle.steering_center)
+			* ((2.0 * main_config.vehicle.steering_max_angle_rad)
+					/ main_config.vehicle.steering_range);
+#endif
+}
 
 void pos_init(void) {
 	ahrs_init_attitude_info(&m_att);		// Sets initial ahrs values to zero
@@ -937,10 +957,7 @@ static void mpu9150_read(float *accel, float *gyro, float *mag) {
 
 		float speed = hydraulic_get_speed();
 
-		float steering_angle = (servo_simple_get_pos_now()
-				- main_config.vehicle.steering_center)
-							* ((2.0 * main_config.vehicle.steering_max_angle_rad)
-									/ main_config.vehicle.steering_range);
+		float steering_angle = pos_steering_angle_rad();
 
 
 		if (fabsf(steering_angle) >= 1e-6) {
@@ -1444,10 +1461,7 @@ static void mc_values_received(mc_values *val) {
         utils_norm_angle_rad(&angle_diff);
     }
 	#elif !defined(MISTRAL)
-    float steering_angle = (servo_simple_get_pos_now()
-            - main_config.vehicle.steering_center)
-            * ((2.0 * main_config.vehicle.steering_max_angle_rad)
-                    / main_config.vehicle.steering_range);
+    float steering_angle = pos_steering_angle_rad();
 
     if (fabsf(steering_angle) >= 1e-6) {
         turn_rad_rear = main_config.vehicle.axis_distance / tanf(steering_angle);

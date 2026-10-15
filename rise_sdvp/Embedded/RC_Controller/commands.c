@@ -746,9 +746,32 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			main_config.vehicle.vesc_i_gain = buffer_get_float32_auto(data, &ind);
 			main_config.vehicle.vesc_d_gain = buffer_get_float32_auto(data, &ind);
 
-			main_config.vehicle.sensorcentre = buffer_get_float32_auto(data, &ind);
-			main_config.vehicle.sensorinterval = buffer_get_float32_auto(data, &ind);
-			main_config.vehicle.degreeinterval = buffer_get_float32_auto(data, &ind);
+			{
+				float c = buffer_get_float32_auto(data, &ind);
+				float r = buffer_get_float32_auto(data, &ind);
+				float l = buffer_get_float32_auto(data, &ind);
+#ifdef ANGLE_SENSOR_PA3
+				// Vinkelgivarens kalibrering (rakt fram/höger/vänster i mV) ändras med
+				// vinkel_noll/hoger/vanster. RControlStations Write skickar gamla värden
+				// ur sitt fönster (t.ex. 1024/1024/100) och raderade kalibreringen på mk1
+				// 2026-10-15. Ta bara emot en giltig trepunktskalibrering.
+				bool giltig = c > 500.0 && c < 4500.0 && c != 580.0
+						&& r > 100.0 && r < 4900.0 && l > 100.0 && l < 4900.0
+						&& fabsf(r - c) > 50.0 && fabsf(l - c) > 50.0 && (r - c) * (l - c) < 0.0;
+				if (giltig) {
+					main_config.vehicle.sensorcentre = c;
+					main_config.vehicle.sensorinterval = r;
+					main_config.vehicle.degreeinterval = l;
+				} else {
+					commands_printf("Write: vinkelgivarens kalibrering behålls (%.0f/%.0f/%.0f mV ignoreras).",
+							(double)c, (double)r, (double)l);
+				}
+#else
+				main_config.vehicle.sensorcentre = c;
+				main_config.vehicle.sensorinterval = r;
+				main_config.vehicle.degreeinterval = l;
+#endif
+			}
 			float deadband= buffer_get_float32_auto(data, &ind);
 			main_config.vehicle.deadband =deadband;
 
