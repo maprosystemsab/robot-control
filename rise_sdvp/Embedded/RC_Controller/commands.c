@@ -1170,6 +1170,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			// Bara läsning, för statusskärmen: ingen timeout_reset() (annars skulle
 			// kortet aldrig stoppa om förarens länk dör) och ingen ny send_func
 			// (Car_Client skickar allt kortet säger vidare till alla).
+			// (Nummer 150; 143 är nödstoppets statuspaket från Car_Client.)
 			// Svar: [id][cmd][status u8: 0 ingen givare, 1 OK, 2 fel][kalibrerad u8]
 			//       [mV u16][grader*100 i32]
 			int32_t send_index = 0;
