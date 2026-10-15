@@ -313,6 +313,11 @@ bool adconv_angle_sensor_ok(void) {
 	return angle_sensor_ok;
 }
 
+bool adconv_angle_calibrated(void) {
+	float c, r, l;
+	return angle_cal_mv(&c, &r, &l);
+}
+
 static void terminal_cmd_angle(int argc, const char **argv) {
 	(void)argc;
 	(void)argv;

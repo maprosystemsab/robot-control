@@ -1,0 +1,205 @@
+/*
+	Styrning med vinkelgivare (RobAnt, 2026-10-15)
+
+	Spakens utslag blir hjulens vinkel: lite spak = lite sväng, släppt spak =
+	hjulen går tillbaka till rakt fram av sig själva. Utan detta styr spaken
+	styrmotorns duty direkt, och hjulen blir stående där de är när spaken släpps.
+
+	Kortet driver styr-VESC:en (activity 11) mot målvinkeln med en P-regulator
+	var 10:e ms. Faller tillbaka till det gamla läget (spaken = duty) om
+	vinkelgivaren inte är OK eller inte är kalibrerad (vinkel_noll/höger/vänster),
+	eller om läget slås av med terminalkommandot `styrlage duty`.
+
+	Säkerhet:
+	- Efter sista styrkommandot körs bara tills målvinkeln är nådd, högst
+	  STYRPOS_HOLD_MS. Sedan duty 0.
+	- Givarfel under körning: duty 0, och nästa kommando går i det gamla läget.
+	- Går vinkeln åt fel håll (fel tecken) i STYRPOS_WRONG_MS: duty 0 och
+	  läget slås av tills `styrlage vinkel` körs igen.
+ */
+
+#include "styr_position.h"
+#include "conf_general.h"
+#include "terminal.h"
+#include "commands.h"
+#include "comm_can.h"
+#include "bldc_interface.h"
+#include "adconv.h"
+#include "utils.h"
+#include "ch.h"
+#include <math.h>
+#include <string.h>
+#include <stdlib.h>
+
+#ifdef ANGLE_SENSOR_PA3
+
+extern float frontangle;
+
+// Spakens fulla utslag så som RControlStation och robotd skickar det (styrning alltid 0,8).
+#define STYRPOS_FULL_STICK		0.8
+// Målvinkel vid fullt utslag: lite innanför kalibrerat ändläge (±ANGLE_SENSOR_MAX_DEG),
+// så att motorn inte trycker mot ändstoppet.
+#define STYRPOS_MAX_DEG			(ANGLE_SENSOR_MAX_DEG * 0.93)
+#define STYRPOS_HOLD_MS			3000
+#define STYRPOS_WRONG_MS		600
+
+static float m_kp = 0.05;			// duty per grad
+static float m_max_duty = 0.6;
+static float m_min_duty = 0.08;		// minsta duty som rubbar styrningen
+static float m_deadband_deg = 1.0;
+static float m_sign = 1.0;			// +1: positiv duty ökar vinkeln (åt höger)
+static bool m_enabled = true;
+
+static volatile int m_vesc_id = -1;
+static volatile float m_target_deg = 0.0;
+static volatile systime_t m_last_cmd = 0;
+static bool m_driving = false;
+static float m_wrong_start_angle = 0.0;
+static float m_wrong_dir = 0.0;
+static systime_t m_wrong_since = 0;
+static bool m_wrong_timing = false;
+
+static void set_duty(int id, float duty) {
+	comm_can_lock_vesc();
+	comm_can_set_vesc_id(id);
+	bldc_interface_set_duty_cycle(duty);
+	comm_can_unlock_vesc();
+}
+
+bool styrpos_available(void) {
+	return m_enabled && adconv_angle_sensor_ok() && adconv_angle_calibrated();
+}
+
+bool styrpos_command(int vesc_id, float magnitude) {
+	if (!styrpos_available()) {
+		return false;
+	}
+	float s = magnitude / STYRPOS_FULL_STICK;
+	utils_truncate_number(&s, -1.0, 1.0);
+	m_target_deg = s * STYRPOS_MAX_DEG;
+	m_vesc_id = vesc_id;
+	m_last_cmd = chVTGetSystemTimeX();
+	return true;
+}
+
+static void stop(void) {
+	if (m_driving && m_vesc_id >= 0) {
+		set_duty(m_vesc_id, 0.0);
+	}
+	m_driving = false;
+	m_wrong_timing = false;
+}
+
+void styrpos_update(void) {
+	if (m_vesc_id < 0) {
+		return;
+	}
+	if (!m_enabled || !adconv_angle_sensor_ok()) {
+		stop();
+		return;
+	}
+
+	float err = m_target_deg - frontangle;
+	bool reached = fabsf(err) < m_deadband_deg;
+	bool stale = chVTTimeElapsedSinceX(m_last_cmd) > MS2ST(STYRPOS_HOLD_MS);
+	bool cmd_recent = chVTTimeElapsedSinceX(m_last_cmd) < MS2ST(500);
+
+	// Inga nya kommandon: kör bara klart till målet, sedan stilla.
+	if (reached || stale) {
+		if (reached && cmd_recent) {
+			// Står på målet medan föraren styr: håll stilla utan att släppa läget.
+			if (m_driving) {
+				set_duty(m_vesc_id, 0.0);
+				m_driving = false;
+			}
+			m_wrong_timing = false;
+			return;
+		}
+		stop();
+		return;
+	}
+
+	float duty = m_kp * err;
+	utils_truncate_number_abs(&duty, m_max_duty);
+	if (fabsf(duty) < m_min_duty) {
+		duty = SIGN(duty) * m_min_duty;
+	}
+	duty *= m_sign;
+
+	// Fel håll: hjulen rör sig bort från målet trots att motorn drivs mot det
+	// -> stoppa och slå av läget. Mäts på vinkelns rörelse (inte på felet, som
+	// växer av sig självt när spaken dras fortare än hjulen hinner med).
+	float dir = SIGN(err);
+	if (!m_wrong_timing || dir != m_wrong_dir) {
+		m_wrong_timing = true;
+		m_wrong_dir = dir;
+		m_wrong_since = chVTGetSystemTimeX();
+		m_wrong_start_angle = frontangle;
+	} else if (chVTTimeElapsedSinceX(m_wrong_since) > MS2ST(STYRPOS_WRONG_MS)) {
+		float moved = (frontangle - m_wrong_start_angle) * dir;	// + = mot målet
+		if (moved < -3.0) {
+			set_duty(m_vesc_id, 0.0);
+			m_driving = false;
+			m_enabled = false;
+			commands_printf("Styrning: hjulen gick %.1f° åt fel håll. Vinkelstyrningen avslagen, "
+					"spaken styr motorn direkt. Byt tecken: styrlage tecken, sedan styrlage vinkel\n",
+					(double)-moved);
+			return;
+		}
+		// Nytt mätfönster
+		m_wrong_since = chVTGetSystemTimeX();
+		m_wrong_start_angle = frontangle;
+	}
+
+	set_duty(m_vesc_id, duty);
+	m_driving = true;
+}
+
+static void terminal_cmd_styrlage(int argc, const char **argv) {
+	if (argc >= 2) {
+		if (strcmp(argv[1], "duty") == 0) {
+			stop();
+			m_enabled = false;
+		} else if (strcmp(argv[1], "vinkel") == 0) {
+			m_enabled = true;
+		} else if (strcmp(argv[1], "tecken") == 0) {
+			stop();
+			m_sign = -m_sign;
+		} else if (argc >= 3 && strcmp(argv[1], "kp") == 0) {
+			m_kp = (float)atof(argv[2]);
+		} else if (argc >= 3 && strcmp(argv[1], "max") == 0) {
+			m_max_duty = (float)atof(argv[2]);
+		} else if (argc >= 3 && strcmp(argv[1], "min") == 0) {
+			m_min_duty = (float)atof(argv[2]);
+		} else if (argc >= 3 && strcmp(argv[1], "dodband") == 0) {
+			m_deadband_deg = (float)atof(argv[2]);
+		} else {
+			commands_printf("Okänt: styrlage [vinkel|duty|tecken|kp X|max X|min X|dodband X]\n");
+			return;
+		}
+	}
+	commands_printf("Styrläge: %s%s. kp %.3f, max %.2f, min %.2f, dödband %.1f°, tecken %+.0f. "
+			"Mål %.1f°, nu %.1f°. Nollställs vid omstart.\n",
+			m_enabled ? "vinkel (spaken = hjulens vinkel)" : "duty (spaken = motorns fart)",
+			(m_enabled && !styrpos_available()) ? " – givaren ej OK/kalibrerad, kör duty" : "",
+			(double)m_kp, (double)m_max_duty, (double)m_min_duty, (double)m_deadband_deg, (double)m_sign,
+			(double)m_target_deg, (double)frontangle);
+}
+
+void styrpos_init(void) {
+	terminal_register_command_callback(
+			"styrlage",
+			"Styrning: vinkel (spaken = hjulens vinkel, centrerar själv) eller duty (som förut). "
+			"Även tecken, kp X, max X, min X, dodband X.",
+			"[vinkel|duty|tecken|kp X|max X|min X|dodband X]",
+			terminal_cmd_styrlage);
+}
+
+#else
+
+void styrpos_init(void) {}
+void styrpos_update(void) {}
+bool styrpos_available(void) { return false; }
+bool styrpos_command(int vesc_id, float magnitude) { (void)vesc_id; (void)magnitude; return false; }
+
+#endif

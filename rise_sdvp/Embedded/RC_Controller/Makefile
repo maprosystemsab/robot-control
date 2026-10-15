@@ -185,6 +185,7 @@ CSRC = $(STARTUPSRC) \
        wheelspeed.c \
        motor_control.c \
        steering_control.c \
+       styr_position.c \
        actions.c \
        sensor_control.c \
        state_control.c \

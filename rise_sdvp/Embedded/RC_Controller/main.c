@@ -32,6 +32,7 @@
 //#include "basic_rf.h"
 #include "ext_cb.h"
 #include "adconv.h"
+#include "styr_position.h"
 #include "led.h"
 #include "packet.h"
 #include "pos.h"
@@ -135,6 +136,7 @@ int main(void) {
 	conf_general_init();
 	actuators_init();
 	adconv_init();
+	styrpos_init();
 	servo_simple_init();
 	pos_init();
 	pos_uwb_init();
@@ -187,6 +189,7 @@ int main(void) {
 		packet_timerfunc();
 #ifdef ANGLE_SENSOR_PA3
 		adconv_update_angle();
+		styrpos_update();
 #endif
 	}
 }

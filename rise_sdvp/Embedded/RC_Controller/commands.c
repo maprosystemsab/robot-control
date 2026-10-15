@@ -35,6 +35,7 @@
 #include "log.h"
 #include "ublox.h"
 #include "adconv.h"
+#include "styr_position.h"
 #include "motor_sim.h"
 #include "m8t_base.h"
 #include "pos_uwb.h"
@@ -1264,6 +1265,11 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 						              i, actuators[i].motorid, actuators[i].mode, actuators[i].type, actuators[i].activity);
 						commands_printf("Calling VESC with magnitude: %f", magnitude);*/
 						
+						// Styrningen med vinkelgivare: spakens utslag = hjulens vinkel
+						// (styr_position.c). Annars som förut: värdet direkt till VESC:en.
+						if (activity == STYRPOS_ACTIVITY && styrpos_command(actuators[i].motorid, magnitude)) {
+							continue;
+						}
 						// Use the actuator's mode and VESC ID to control it
 						motor_set_vesc_value(actuators[i].motorid, magnitude, actuators[i].mode);
 					} else
