@@ -1249,6 +1249,11 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			magnitude = (float)raw_value / 1e4;  // Manual conversion for debug
 	//		commands_printf("Magnitude: %f", magnitude);
 
+			// RobAnt: drivsidor var för sig och vändning på stället
+			if (motor_rc_adv((uint8_t)activity, magnitude)) {
+				break;
+			}
+
 			// Get actuators with the specified activity
 			int actuator_count = 0;
 			ACTUATOR* actuators = motor_get_actuators_by_activity(activity, &actuator_count);
