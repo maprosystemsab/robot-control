@@ -638,6 +638,18 @@ static void fart_ramp(float dt) {
 		m_fart_ut_v = ramp_steg(m_fart_ut_v, mv, dt);
 		m_fart_ut_h = ramp_steg(m_fart_ut_h, mh, dt);
 	}
+	// Hastighetsgivaren ser inte riktningen utan tar den från current_motor_direction.
+	// Manuell körning (dosan, CMD_RC_CONTROL_ADV) satte den aldrig, så backning
+	// räknades som framåt: positionen gick åt fel håll och kursen vreds i svängar
+	// (mk1 2026-10-16). Nu sätts den här av det som faktiskt går ut till sidorna,
+	// för både dosan och autopiloten. Nära noll behålls senaste riktningen (rullar ut).
+	float medel = 0.5f * (m_fart_ut_v + m_fart_ut_h);
+	if (medel > 0.02f) {
+		current_motor_direction = 1;
+	} else if (medel < -0.02f) {
+		current_motor_direction = -1;
+	}
+
 	bool noll = m_fart_ut_v == 0.0f && m_fart_ut_h == 0.0f;
 	if (!noll || !m_fart_skickad_noll) {
 		skicka_sidor(m_fart_ut_v, m_fart_ut_h);
@@ -699,6 +711,9 @@ static THD_FUNCTION(vandning_thread, arg) {
 			ut = (ut - steg < mal_ut) ? mal_ut : ut - steg;
 		}
 		m_vand_ut = ut;
+		// Vändning på stället: roboten flyttar sig inte, hastighetsgivaren ska inte
+		// räknas som körd sträcka (0 = stilla, se wheelspeed.c).
+		current_motor_direction = 0;
 
 		skicka_sidor(ut, -ut);
 

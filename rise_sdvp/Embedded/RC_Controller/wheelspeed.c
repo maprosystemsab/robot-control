@@ -129,7 +129,8 @@ void update_speed_buffer(float period, float unused) {
     }
 
     int direction=motor_get_direction();
-    float new_speed = SIGN(direction) * (wheel_diam * M_PI) / (avg_time * cnts_per_rev);
+    // 0 = vändning på stället (RobAnt): hjulen snurrar men roboten står kvar.
+    float new_speed = direction == 0 ? 0.0f : SIGN(direction) * (wheel_diam * M_PI) / (avg_time * cnts_per_rev);
     
     // Update shared speed variables
     chSysLockFromISR();

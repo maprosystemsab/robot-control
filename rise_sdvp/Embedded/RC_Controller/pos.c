@@ -1298,6 +1298,12 @@ static void correct_pos_gps(POS_STATE *pos)
 		//Calculate yaw from gps
 		float yaw_gps = -atan2f(pos->py_gps - pos->gps_ang_corr_y_last_gps,
 				pos->px_gps - pos->gps_ang_corr_x_last_gps) * 180.0 / M_PI;
+		// GPS ger färdriktningen. Vid backning pekar nosen tvärtom: annars drogs
+		// kursen mot 180° fel varje gång roboten backade (mk1 2026-10-16).
+		if (pos->speed < 0.0f) {
+			yaw_gps += 180.0f;
+			utils_norm_angle(&yaw_gps);
+		}
 		if(iDebug==44)
 		{
 			commands_printf("yaw gps: %f\n",(double) yaw_gps);
