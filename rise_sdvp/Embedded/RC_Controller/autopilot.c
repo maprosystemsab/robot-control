@@ -74,6 +74,16 @@ static bool m_sync_rx; // Flag for synchronization state
 static int m_print_closest_point; // Debug: print closest point every N iterations (0 = disabled)
 static bool m_en_dynamic_rad; // Enable dynamic radius calculation based on speed
 static bool m_en_angle_dist_comp; // Enable angle-distance compensation for steering
+#ifdef IS_ROBANT
+// Sidofel mot linjen, integrerat (rad styrvinkel). Ren "pure pursuit" lämnar ett
+// stående sidofel när styrningen har dödband eller inte står exakt rakt: på mk1
+// körde roboten ca 1 m bredvid linjen (2026-10-16). Den här delen drar in den.
+#define AP_SIDA_KI			0.03	// rad per (m * s)
+#define AP_SIDA_MAX			0.10	// rad (ca 6 grader)
+#define AP_SIDA_MAX_FEL		1.5		// m; större fel (påväg in, skarp kurva) integreras inte
+static float m_sida_i = 0.0;
+static systime_t m_sida_t = 0;
+#endif
 static int m_route_look_ahead; // Number of points to look ahead along the route
 static int m_route_left; // Number of points remaining in the route
 static bool m_route_end; // Flag indicating if end of route has been reached
@@ -422,6 +432,9 @@ void autopilot_set_active(bool active) {
 	// If activating and was previously inactive, record start time
 	if (active && !m_is_active) {
 		m_start_time = pos_get_ms_today();
+#ifdef IS_ROBANT
+		m_sida_i = 0.0;
+#endif
 //		m_sync_rx = false; // Commented out: reset sync flag on activation
 	}
 
@@ -998,6 +1011,29 @@ static THD_FUNCTION(ap_thread, arg) {
 
 				steering_angle_to_point(pos_now.px, pos_now.py, -pos_now.yaw * M_PI / 180.0, rp_now.px,
 						rp_now.py, &steering_angle, &distance, &circle_radius);
+
+#ifdef IS_ROBANT
+				{
+					float dt = ST2MS(chVTTimeElapsedSinceX(m_sida_t)) / 1000.0;
+					m_sida_t = chVTGetSystemTimeX();
+					if (dt > 0.2) {
+						dt = 0.2;
+					}
+					// Sidofel: + = fordonet till vänster om linjen (closest1 -> closest2).
+					float sx = closest2->px - closest1->px;
+					float sy = closest2->py - closest1->py;
+					float slen = sqrtf(sx * sx + sy * sy);
+					if (closest_set && m_is_route_started && slen > 0.05 && pos_now.speed > 0.1) {
+						float sida = (sx * (vehicle_cy - closest.py) - sy * (vehicle_cx - closest.px)) / slen;
+						if (fabsf(sida) < AP_SIDA_MAX_FEL) {
+							m_sida_i += AP_SIDA_KI * sida * dt;
+							utils_truncate_number_abs(&m_sida_i, AP_SIDA_MAX);
+						}
+					}
+					// + styrvinkel = sväng vänster; till vänster om linjen ska den svänga höger.
+					steering_angle -= m_sida_i;
+				}
+#endif
 				//debugvalue7=distance;
 				//debugvalue11=pos_now.px;
 				//debugvalue12=pos_now.py;
