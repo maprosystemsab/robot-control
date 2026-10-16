@@ -288,6 +288,9 @@ void tach_input_init(void) {
     TIM2->ARR = 0xFFFF;        // Max period
     TIM2->CCMR2 &= ~TIM_CCMR2_CC3S;
     TIM2->CCMR2 |= TIM_CCMR2_CC3S_0;  // CC3 input, map to TI3
+#ifdef WHEELSPEED_MIN_PERIOD_S
+    TIM2->CCMR2 |= TIM_CCMR2_IC3F;    // digitalt filter: kanten måste ligga stilla 8 sampel (fDTS/32)
+#endif
     TIM2->CCER &= ~TIM_CCER_CC3P;     // Rising edge (clear bit for rising edge)
     TIM2->CCER |= TIM_CCER_CC3E;      // Enable input capture
     
@@ -346,6 +349,10 @@ CH_IRQ_HANDLER(STM32_TIM2_HANDLER) {
         uint32_t capture32 = ((uint32_t)timer_overflow_count << 16) | capture16;
 
         uint32_t delta = capture32 - last_capture;
+#ifdef WHEELSPEED_MIN_PERIOD_S
+        // Störpuls (t.ex. från styrmotorn): räkna som om den aldrig kom.
+        if (delta >= (uint32_t)(WHEELSPEED_MIN_PERIOD_S * 100000.0)) {
+#endif
         last_capture = capture32;
 
         last_reading_time = chVTGetSystemTimeX();
@@ -359,6 +366,9 @@ CH_IRQ_HANDLER(STM32_TIM2_HANDLER) {
         // For a square wave, the period is the sum of high and low times
         update_speed_buffer(period, 0.0f);
         new_pulse = true;  // signalera till tråden
+#ifdef WHEELSPEED_MIN_PERIOD_S
+        }
+#endif
 
         TIM2->SR &= ~TIM_SR_CC3IF;
     }

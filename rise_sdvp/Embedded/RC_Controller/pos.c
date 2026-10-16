@@ -1291,6 +1291,48 @@ static void correct_pos_gps(POS_STATE *pos)
 		commands_printf("time gps last corr: %f\n",(double) pos->gps_ang_corr_last_gps_ms);
 	}
 
+#ifdef IS_ROBANT
+	// RobAnt med RTK (fix/float): rätta hårt. Den vanliga rättningen (högst ca 6 cm
+	// och 0,2° per GPS-position) hann inte med: bilen på kartan sprang ifrån
+	// GPS-punkten så fort kursen var lite fel (mk1 2026-10-16).
+	if (pos->gps_fix_type == 4 || pos->gps_fix_type == 5) {
+		const float yaw_min_dist = 0.3;		// m mellan GPS-punkterna kursen räknas från
+		const int32_t yaw_max_ms = 1000;	// äldre baspunkt: börja om (positionshistoriken är kort)
+		const float andel = 1.0 / 3.0;		// del av felet som rättas per GPS-position
+
+		int32_t dt_ms = pos->gps_ms - pos->gps_ang_corr_last_gps_ms;
+		float moved = utils_point_distance(pos->px_gps, pos->py_gps,
+				pos->gps_ang_corr_x_last_gps, pos->gps_ang_corr_y_last_gps);
+
+		if (dt_ms < 0 || dt_ms > yaw_max_ms) {
+			pos->gps_ang_corr_x_last_gps = pos->px_gps;
+			pos->gps_ang_corr_y_last_gps = pos->py_gps;
+			pos->gps_ang_corr_last_gps_ms = pos->gps_ms;
+		} else if (moved >= yaw_min_dist) {
+			float yaw_gps = -atan2f(pos->py_gps - pos->gps_ang_corr_y_last_gps,
+					pos->px_gps - pos->gps_ang_corr_x_last_gps) * 180.0 / M_PI;
+			// GPS ger färdriktningen; vid backning pekar nosen tvärtom.
+			if (pos->speed < 0.0f) {
+				yaw_gps += 180.0f;
+				utils_norm_angle(&yaw_gps);
+			}
+			POS_POINT mid = get_closest_point_to_time(
+					(pos->gps_ms + pos->gps_ang_corr_last_gps_ms) / 2.0);
+			m_imu_yaw_offset -= utils_angle_difference(yaw_gps, mid.yaw) * andel;
+			utils_norm_angle(&m_imu_yaw_offset);
+
+			pos->gps_ang_corr_x_last_gps = pos->px_gps;
+			pos->gps_ang_corr_y_last_gps = pos->py_gps;
+			pos->gps_ang_corr_last_gps_ms = pos->gps_ms;
+		}
+
+		POS_POINT closest = get_closest_point_to_time(m_en_delay_comp ? pos->gps_ms : m_ms_today);
+		pos->px += (pos->px_gps - closest.px) * andel;
+		pos->py += (pos->py_gps - closest.py) * andel;
+		return;
+	}
+#endif
+
 	// If has a speed of at least 0.5 km/h
 	// Yaw = Angle on the x/y plane (i.e. the angle that is most relevant on you are on ground)
 	// Angle
