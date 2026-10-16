@@ -246,6 +246,15 @@ pub fn parse_angle_printf(payload: &[u8]) -> Option<(f32, bool)> {
     Some((deg, rest.contains(", OK")))
 }
 
+/// Autocentreringens läge i slutet av `vinkel`-svaret (firmware 30.18):
+/// "... [autocentrering N]". Äldre firmware skriver det inte -> `None`.
+pub fn parse_autocenter_printf(payload: &[u8]) -> Option<u8> {
+    let [_id, CMD_PRINTF, text @ ..] = payload else { return None };
+    let text = String::from_utf8_lossy(text);
+    let rest = text.split("[autocentrering ").nth(1)?;
+    rest.split(']').next()?.trim().parse().ok()
+}
+
 /// `CMD_RC_CONTROL_ADV` (125): samma kommando som RControlStation skickar när
 /// dosan styr (`PacketInterface::setRcControlAdvanced`). Kortet slår upp alla
 /// aktuatorer med den aktiviteten (sparade på kortet via Confcommon → Write)
@@ -310,6 +319,17 @@ mod tests {
         p.extend(b"Activity 10 -> 2 actuator(s)");
         assert_eq!(parse_angle_printf(&p), None);
         assert_eq!(make_terminal_cmd(4, "vinkel"), vec![4, 1, b'v', b'i', b'n', b'k', b'e', b'l']);
+    }
+
+    #[test]
+    fn autocentreringen_tolkas() {
+        let mut p = vec![4, CMD_PRINTF];
+        p.extend("Vinkelgivare: 3472 mV, vinkel 0.2 grader, OK (rakt fram 3472 mV, höger 3924 mV, vänster 3046 mV) [autocentrering 3]\n".as_bytes());
+        assert_eq!(parse_angle_printf(&p), Some((0.2, true)));
+        assert_eq!(parse_autocenter_printf(&p), Some(3));
+        let mut p = vec![4, CMD_PRINTF];
+        p.extend(b"Vinkelgivare: 2350 mV, vinkel -10.8 grader, OK\n");
+        assert_eq!(parse_autocenter_printf(&p), None);
     }
 
     #[test]

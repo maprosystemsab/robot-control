@@ -371,6 +371,13 @@ async fn main() {
                             });
                         }
                     }
+                    RobotRequest::SetAutocenter { on } => {
+                        tracing::info!("Föraren slår {} autocentreringen.", if on { "på" } else { "av" });
+                        if let Some(l) = link.as_ref() {
+                            let cmd = if on { "autocentrering pa" } else { "autocentrering av" };
+                            let _ = l.config.try_send(car_client_link::ConfigRequest::Terminal(cmd.to_string()));
+                        }
+                    }
                     RobotRequest::TestSpinVesc { can_id, respond_to } => {
                         // Samma regel som skrivning: inte under körning.
                         let moving = throttle_ramp.current() != 0.0 || steering_ramp.current() != 0.0;
@@ -558,6 +565,7 @@ fn build_status(
         rssi_dbm: signal.as_ref().and_then(|s| s.rssi_dbm),
         signal_info: signal.and_then(|s| s.info),
         estop: None,
+        autocenter: t.autocenter,
     }
 }
 
@@ -584,7 +592,7 @@ mod tests {
             roll_deg: 4.0, pitch_deg: -1.5, yaw_deg: 210.0,
             speed_ms: -1.0, v_in: 48.2, temp_mos: 35.0, fault_code: 2,
         };
-        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((-12.5, true)) };
+        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((-12.5, true)), autocenter: None };
         let fig = vehicle::VehicleFigures { percent: 50.0, charging: Some(true), power_w: 120.0, wh_per_km: Some(90.0), range_km: Some(13.3) };
         let sig = router::RouterSignal { rssi_dbm: Some(-71), info: Some("4G Telia".into()) };
         let s = build_status(&car_client_link::LinkStatus::default(), &t, &[90, 87], Some(fig), Some(sig), 25.0);
@@ -596,7 +604,7 @@ mod tests {
         assert_eq!(s.battery_charging, Some(true));
         assert_eq!(s.rssi_dbm, Some(-71));
         // Vinkelgivaren säger FEL: ingen styrvinkel alls.
-        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((0.0, false)) };
+        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((0.0, false)), autocenter: None };
         let s = build_status(&car_client_link::LinkStatus::default(), &t, &[], None, None, 25.0);
         assert_eq!(s.steering_deg, None);
         assert_eq!(s.steering_percent, None);

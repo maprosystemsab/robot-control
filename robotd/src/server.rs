@@ -61,6 +61,7 @@ pub enum RobotRequest {
     ListDriveLogs { respond_to: mpsc::Sender<RobotMessage> },
     GetDriveLog { name: String, respond_to: mpsc::Sender<RobotMessage> },
     TestSpinVesc { can_id: u8, respond_to: mpsc::Sender<RobotMessage> },
+    SetAutocenter { on: bool },
 }
 
 pub struct ServerHandles {
@@ -302,6 +303,10 @@ async fn handle_socket(
                                     message: "bara föraren kan provsnurra".to_string(),
                                 }).await;
                             }
+                            Ok(ClientMessage::SetAutocenter { on }) if is_driver => {
+                                let _ = state.request_tx.send(RobotRequest::SetAutocenter { on }).await;
+                            }
+                            Ok(ClientMessage::SetAutocenter { .. }) => {}
                             Ok(ClientMessage::ListDriveLogs) => {
                                 let _ = state.request_tx.send(RobotRequest::ListDriveLogs {
                                     respond_to: out_tx.clone(),

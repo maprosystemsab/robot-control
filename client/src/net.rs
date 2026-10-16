@@ -207,6 +207,13 @@ impl NetLink {
         }
     }
 
+    /// Knappen Autocentrering (firmware 30.18): på/av, sparas i styrkortet.
+    pub fn set_autocenter(&self, on: bool) {
+        if let Some(tx) = &self.request_tx {
+            let _ = tx.try_send(ClientMessage::SetAutocenter { on });
+        }
+    }
+
     pub fn read_actuators(&self) {
         if let Some(tx) = &self.request_tx {
             let _ = tx.try_send(ClientMessage::ReadActuators);

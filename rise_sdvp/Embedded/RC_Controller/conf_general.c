@@ -29,6 +29,8 @@
 
 // Settings
 #define EEPROM_BASE_MAINCONF		1000
+// Egna variabler utanför MAIN_CONFIG (RCS Write rör dem inte).
+#define EEPROM_AUTOCENTRERING		2000
 
 // Global variables
 MAIN_CONFIG main_config;
@@ -63,6 +65,9 @@ void conf_general_init(void) {
 	for (unsigned int i = 0;i < (sizeof(MAIN_CONFIG) / 2);i++) {
 		VirtAddVarTab[i] = EEPROM_BASE_MAINCONF + i;
 	}
+	// Tabellen har plats för sizeof(MAIN_CONFIG) poster men MAIN_CONFIG använder
+	// bara hälften. Måste stå i tabellen för att följa med när EEPROM-sidan byts.
+	VirtAddVarTab[sizeof(MAIN_CONFIG) / 2] = EEPROM_AUTOCENTRERING;
 
 	FLASH_Unlock();
 	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
@@ -81,6 +86,27 @@ void conf_general_init(void) {
 			"Set the ID of the board, and print no reply.",
 			"[id]",
 			terminal_cmd_set_id_quiet);
+}
+
+/**
+ * Autocentrering (vinkelstyrning med vinkelgivaren) på/av, sparat i styrkortet.
+ * Aldrig sparat = på.
+ */
+bool conf_general_autocentrering(void) {
+	uint16_t var;
+	if (EE_ReadVariable(EEPROM_AUTOCENTRERING, &var) == 0) {
+		return var != 0;
+	}
+	return true;
+}
+
+bool conf_general_store_autocentrering(bool on) {
+	FLASH_ClearFlag(FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR | FLASH_FLAG_PGAERR |
+			FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
+	utils_sys_lock_cnt();
+	bool ok = EE_WriteVariable(EEPROM_AUTOCENTRERING, on ? 1 : 0) == FLASH_COMPLETE;
+	utils_sys_unlock_cnt();
+	return ok;
 }
 
 /**

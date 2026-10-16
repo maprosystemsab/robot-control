@@ -509,6 +509,33 @@ impl App {
                                 self.show_guide = !self.show_guide;
                             }
 
+                            // Autocentrering (firmware 30.18): grön = på, grå = av,
+                            // låst när roboten saknar kalibrerad vinkelgivare.
+                            let auto = self.net.fresh_status().and_then(|s| s.autocenter);
+                            let (text, tip) = match auto {
+                                Some(1) => ("Autocentrering", "PÅ: spaken = hjulens vinkel, hjulen går tillbaka rakt fram själva. Klicka för att slå av (sparas i roboten)."),
+                                Some(2) => ("Autocentrering", "AV: spaken styr styrmotorn direkt. Klicka för att slå på (sparas i roboten)."),
+                                Some(3) => ("Autocentrering (fel)", "AV p.g.a. fel på vinkelgivaren eller styrningen. Klicka för att slå på igen."),
+                                Some(0) => ("Autocentrering", "Roboten har ingen kalibrerad vinkelgivare."),
+                                _ => ("Autocentrering", "Okänt läge (ingen vinkelgivare, eller firmware äldre än 30.18)."),
+                            };
+                            let mut knapp = egui::Button::new(if auto == Some(1) {
+                                egui::RichText::new(text).color(egui::Color32::WHITE).strong()
+                            } else {
+                                egui::RichText::new(text)
+                            });
+                            if auto == Some(1) {
+                                knapp = knapp.fill(egui::Color32::from_rgb(46, 157, 58));
+                            }
+                            if ui
+                                .add_enabled(matches!(auto, Some(1..=3)), knapp)
+                                .on_hover_text(tip)
+                                .on_disabled_hover_text(tip)
+                                .clicked()
+                            {
+                                self.net.set_autocenter(auto != Some(1));
+                            }
+
                             if ui.button("Loggar").on_hover_text("Körloggar: hämta loggar från roboten").clicked() {
                                 self.logs_open = true;
                                 self.logs_message = "Hämtar listan…".to_string();

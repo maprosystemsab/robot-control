@@ -135,6 +135,8 @@ pub struct Telemetry {
     pub vescs: Vec<VescStatusEntry>,
     /// Styrvinkel (grader) och om vinkelgivaren är OK, från terminalkommandot `vinkel`.
     pub steering: Option<(f32, bool)>,
+    /// Autocentreringens läge ur samma svar (firmware 30.18), se `StatusUpdate::autocenter`.
+    pub autocenter: Option<u8>,
 }
 
 /// Länkens läge, för loggar, OLED och klientens statusrad.
@@ -176,6 +178,8 @@ pub enum ConfigRequest {
     /// Provsnurra en VESC (firmware 30.4). Svaret kommer direkt; styrkortet
     /// sköter tiden och stoppet självt.
     TestSpin(u8, oneshot::Sender<Result<(), String>>),
+    /// Terminalkommando utan svar (t.ex. `autocentrering pa`).
+    Terminal(String),
 }
 
 impl ConfigRequest {
@@ -186,6 +190,9 @@ impl ConfigRequest {
             }
             ConfigRequest::TestSpin(_, r) => {
                 let _ = r.send(Err(why.to_string()));
+            }
+            ConfigRequest::Terminal(cmd) => {
+                tracing::warn!("Terminalkommandot `{cmd}` skickades inte: {why}");
             }
         }
     }
@@ -427,7 +434,11 @@ async fn session(
                         ch.telemetry.send_modify(|t| t.board = Some(state));
                     } else if let Some(angle) = vesc_can::parse_angle_printf(&pkt) {
                         angle_unanswered = 0;
-                        ch.telemetry.send_modify(|t| t.steering = Some(angle));
+                        let auto = vesc_can::parse_autocenter_printf(&pkt);
+                        ch.telemetry.send_modify(|t| {
+                            t.steering = Some(angle);
+                            t.autocenter = auto;
+                        });
                     }
                 }
             }
@@ -535,6 +546,10 @@ async fn handle_config(link: &mut CarClientLink, car_id: u8, req: ConfigRequest)
                 tracing::warn!("Skrivning av aktuatorer misslyckades: {e}");
             }
             let _ = reply.send(result);
+        }
+        ConfigRequest::Terminal(cmd) => {
+            tracing::info!("Terminalkommando till styrkortet: {cmd}");
+            link.send_raw_payload(&vesc_can::make_terminal_cmd(car_id, &cmd)).await?;
         }
         ConfigRequest::TestSpin(vesc, reply) => {
             tracing::info!("Provsnurr VESC {vesc}.");

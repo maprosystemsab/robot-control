@@ -1198,6 +1198,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			// (Nummer 150; 143 är nödstoppets statuspaket från Car_Client.)
 			// Svar: [id][cmd][status u8: 0 ingen givare, 1 OK, 2 fel][kalibrerad u8]
 			//       [mV u16][grader*100 i32]
+			//       30.18: [autocentrering u8: 0 ingen givare, 1 på, 2 av, 3 av p.g.a. fel]
 			int32_t send_index = 0;
 			m_send_buffer[send_index++] = id_ret;
 			m_send_buffer[send_index++] = CMD_GET_VINKEL;
@@ -1206,11 +1207,40 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
 			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);
 			buffer_append_int32(m_send_buffer, (int32_t)(frontangle * 100.0), &send_index);
+			m_send_buffer[send_index++] = (uint8_t)styrpos_status();
 #else
 			m_send_buffer[send_index++] = 0;
 			m_send_buffer[send_index++] = 0;
 			buffer_append_uint16(m_send_buffer, 0, &send_index);
 			buffer_append_int32(m_send_buffer, 0, &send_index);
+			m_send_buffer[send_index++] = 0;
+#endif
+			commands_send_packet(m_send_buffer, send_index);
+		} break;
+
+		case CMD_SET_AUTOCENTRERING: {
+			// [på u8] -> sparas i styrkortet. Svar som CMD_GET_VINKEL (nya läget).
+			// Ingen timeout_reset(): det är inget körkommando.
+			commands_set_send_func(func);
+			if (len < 1) {
+				break;
+			}
+			styrpos_set_autocentrering(data[0] != 0);
+			int32_t send_index = 0;
+			m_send_buffer[send_index++] = id_ret;
+			m_send_buffer[send_index++] = CMD_GET_VINKEL;
+#ifdef ANGLE_SENSOR_PA3
+			m_send_buffer[send_index++] = adconv_angle_sensor_ok() ? 1 : 2;
+			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
+			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);
+			buffer_append_int32(m_send_buffer, (int32_t)(frontangle * 100.0), &send_index);
+			m_send_buffer[send_index++] = (uint8_t)styrpos_status();
+#else
+			m_send_buffer[send_index++] = 0;
+			m_send_buffer[send_index++] = 0;
+			buffer_append_uint16(m_send_buffer, 0, &send_index);
+			buffer_append_int32(m_send_buffer, 0, &send_index);
+			m_send_buffer[send_index++] = 0;
 #endif
 			commands_send_packet(m_send_buffer, send_index);
 		} break;

@@ -48,6 +48,8 @@ pub enum ClientMessage {
     /// Provsnurra en VESC (30 % i 1 s) för att se vilken motor det är.
     /// Maskinen ska vara upphissad. Bara förare.
     TestSpinVesc { can_id: u8 },
+    /// Knappen Autocentrering (firmware 30.18): på/av, sparas i styrkortet. Bara förare.
+    SetAutocenter { on: bool },
 }
 
 /// Skickas av robotd till en ansluten klient.
@@ -182,6 +184,10 @@ pub struct StatusUpdate {
     /// eller "fel". `None` = inget nödstopp installerat på roboten.
     #[serde(default)]
     pub estop: Option<String>,
+    /// Autocentrering (firmware 30.18): 0 ingen kalibrerad givare, 1 på, 2 av,
+    /// 3 av p.g.a. givar-/styrfel. `None` = okänt (äldre firmware, ingen givare i config).
+    #[serde(default)]
+    pub autocenter: Option<u8>,
 }
 
 /// En körlogg på roboten (CSV, en per körning).

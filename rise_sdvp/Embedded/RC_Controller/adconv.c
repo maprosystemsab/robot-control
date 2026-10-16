@@ -17,6 +17,7 @@
 
 #include <math.h>
 #include "adconv.h"
+#include "styr_position.h"
 #include "utils.h"
 #include "conf_general.h"
 #include "terminal.h"
@@ -332,15 +333,16 @@ static void terminal_cmd_angle(int argc, const char **argv) {
 	float c, r, l;
 	bool cal = angle_cal_mv(&c, &r, &l);
 	if (cal) {
-		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger %.0f mV, vänster %.0f mV)\n",
+		// "[autocentrering N]" (styrpos_status) läses av robotd för knappen i Robotstyrning.
+		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger %.0f mV, vänster %.0f mV) [autocentrering %d]\n",
 				(double)angle_mv_filter, (double)frontangle,
 				angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
-				(double)c, (double)r, (double)l);
+				(double)c, (double)r, (double)l, styrpos_status());
 	} else {
-		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger/vänster ej kalibrerat)\n",
+		commands_printf("Vinkelgivare: %.0f mV, vinkel %.1f grader, %s (rakt fram %.0f mV, höger/vänster ej kalibrerat) [autocentrering %d]\n",
 				(double)angle_mv_filter, (double)frontangle,
 				angle_sensor_ok ? "OK" : "FEL (ingen magnet/kabel?)",
-				(double)c);
+				(double)c, styrpos_status());
 	}
 }
 

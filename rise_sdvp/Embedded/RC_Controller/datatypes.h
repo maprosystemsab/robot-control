@@ -248,6 +248,7 @@ typedef enum {
     // alla klienter (carclient.cpp NS_CMD_NODSTOPP_STATUS). 30.11 använde 143 här
     // av misstag, och RControlStations Stopp-knapp blinkade STOPP/ÅTERSTÄLL.
     CMD_GET_VINKEL = 150,       // 30.12: vinkelgivaren (mV, grader, status) utan att nollställa säkerhetstiden
+    CMD_SET_AUTOCENTRERING = 151, // 30.18: [på u8] autocentrering på/av, sparas i styrkortet
 
 	// Mote commands
 	CMD_MOTE_UBX_START_BASE = 200,

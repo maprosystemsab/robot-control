@@ -20,6 +20,13 @@
 	  läget slås av tills `styrlage vinkel` körs igen.
 	- Står vinkeln still fast motorn drivs i STYRPOS_STALL_MS (givaren har
 	  fastnat, t.ex. FMV 2026-10-13, eller styrningen kärvar): samma sak.
+
+	Autocentrering (30.18, 2026-10-16): knappen "Autocentrering" i RCS och
+	Robotstyrning slår läget på/av (CMD_SET_AUTOCENTRERING / terminal
+	`autocentrering pa|av`), sparas i styrkortet. Standard på. Felen ovan, och
+	givare som slutar svara eller visar orimlig vinkel (STYRPOS_FEL_MS), slår av
+	läget tills föraren slår på det igen; status 3 i CMD_GET_VINKEL och orsaken
+	i terminalen. `styrlage duty` (kalibreringen) slår bara av tillfälligt.
  */
 
 #include "styr_position.h"
@@ -34,6 +41,7 @@
 #include <math.h>
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #ifdef ANGLE_SENSOR_PA3
 
@@ -70,7 +78,15 @@ static float m_boost = 0.0;
 static float m_boost_angle = 0.0;
 static systime_t m_boost_t = 0;
 static float m_sign = 1.0;			// +1: positiv duty ökar vinkeln (åt höger)
-static bool m_enabled = true;
+static bool m_enabled = true;		// styrlage vinkel/duty (tillfälligt, t.ex. under kalibreringen)
+static bool m_user_on = true;		// knappen Autocentrering, sparad i styrkortet
+static bool m_fault = false;		// avslagen av ett fel tills föraren slår på igen
+static bool m_sensor_fault = false;	// felet gäller givaren: vinkeln används inte alls (ej differential)
+static char m_fault_why[96] = "";
+// Givaren svarar inte / visar orimlig vinkel så här länge -> autocentreringen av.
+#define STYRPOS_FEL_MS			300
+#define STYRPOS_ORIMLIG_DEG		(ANGLE_SENSOR_MAX_DEG * 1.3)
+static systime_t m_ok_since = 0;
 
 static volatile int m_vesc_id = -1;
 static volatile float m_target_deg = 0.0;
@@ -92,11 +108,57 @@ static void set_duty(int id, float duty) {
 }
 
 bool styrpos_vinkel_giltig(void) {
-	return adconv_angle_sensor_ok() && adconv_angle_calibrated();
+	return !m_sensor_fault && adconv_angle_sensor_ok() && adconv_angle_calibrated();
 }
 
 bool styrpos_available(void) {
-	return m_enabled && adconv_angle_sensor_ok() && adconv_angle_calibrated();
+	return m_user_on && !m_fault && m_enabled && adconv_angle_sensor_ok() && adconv_angle_calibrated();
+}
+
+int styrpos_status(void) {
+	if (!adconv_angle_calibrated()) {
+		return STYRPOS_STATUS_INGEN_GIVARE;
+	}
+	if (!m_user_on) {
+		return STYRPOS_STATUS_AV;
+	}
+	return m_fault ? STYRPOS_STATUS_FEL : STYRPOS_STATUS_PA;
+}
+
+static void print_status(void) {
+	switch (styrpos_status()) {
+	case STYRPOS_STATUS_INGEN_GIVARE:
+		commands_printf("Autocentrering: ingen kalibrerad vinkelgivare, spaken styr motorn direkt.\n");
+		break;
+	case STYRPOS_STATUS_AV:
+		commands_printf("Autocentrering: AV (spaken styr motorn direkt). Sparat i styrkortet.\n");
+		break;
+	case STYRPOS_STATUS_FEL:
+		commands_printf("Autocentrering: AV p.g.a. fel: %s. Tryck Autocentrering för att slå på igen.\n", m_fault_why);
+		break;
+	default:
+		commands_printf("Autocentrering: PÅ (spaken = hjulens vinkel, centrerar själv). Sparat i styrkortet.\n");
+		break;
+	}
+}
+
+static void stop(void);
+
+bool styrpos_set_autocentrering(bool on) {
+	if (!on) {
+		stop();
+	}
+	m_user_on = on;
+	m_fault = false;
+	m_sensor_fault = false;
+	m_enabled = true;
+	m_ok_since = chVTGetSystemTimeX();
+	bool ok = conf_general_store_autocentrering(on);
+	if (!ok) {
+		commands_printf("Autocentrering: kunde inte spara i styrkortet (gäller till omstart).\n");
+	}
+	print_status();
+	return ok;
 }
 
 bool styrpos_target_deg(int vesc_id, float deg) {
@@ -130,23 +192,48 @@ static void stop(void) {
 	m_boost = 0.0;
 }
 
-static void give_up(const char *why) {
-	if (m_vesc_id >= 0) {
+static void give_up(const char *why, bool sensor) {
+	if (m_vesc_id >= 0 && m_driving) {
 		set_duty(m_vesc_id, 0.0);
 	}
 	m_driving = false;
 	m_wrong_timing = false;
 	m_stall_timing = false;
-	m_enabled = false;
-	commands_printf("Styrning: %s. Vinkelstyrningen avslagen, spaken styr motorn direkt "
-			"(styrlage vinkel slår på den igen).\n", why);
+	m_fault = true;
+	m_sensor_fault = sensor;
+	strncpy(m_fault_why, why, sizeof(m_fault_why) - 1);
+	m_fault_why[sizeof(m_fault_why) - 1] = '\0';
+	commands_printf("Styrning: %s. Autocentreringen avslagen, spaken styr motorn direkt "
+			"(knappen Autocentrering slår på den igen).\n", why);
+}
+
+// Givaren slutar svara eller visar en vinkel långt utanför kalibreringen:
+// slå av autocentreringen (FMV 2026-10-13: givaren stod fast på 1064 mV).
+static void check_sensor(void) {
+	if (!m_user_on || m_fault || !adconv_angle_calibrated()) {
+		m_ok_since = chVTGetSystemTimeX();
+		return;
+	}
+	bool ok = adconv_angle_sensor_ok() && fabsf(frontangle) < STYRPOS_ORIMLIG_DEG;
+	if (ok) {
+		m_ok_since = chVTGetSystemTimeX();
+	} else if (chVTTimeElapsedSinceX(m_ok_since) > MS2ST(STYRPOS_FEL_MS)) {
+		if (!adconv_angle_sensor_ok()) {
+			give_up("vinkelgivaren svarar inte (kabel/magnet?)", true);
+		} else {
+			static char why[64];
+			snprintf(why, sizeof(why), "vinkelgivaren visar %.0f grader, utanför kalibreringen", (double)frontangle);
+			give_up(why, true);
+		}
+	}
 }
 
 void styrpos_update(void) {
+	check_sensor();
 	if (m_vesc_id < 0) {
 		return;
 	}
-	if (!m_enabled || !adconv_angle_sensor_ok()) {
+	if (!styrpos_available()) {
 		stop();
 		return;
 	}
@@ -230,7 +317,7 @@ void styrpos_update(void) {
 	} else if (chVTTimeElapsedSinceX(m_wrong_since) > MS2ST(STYRPOS_WRONG_MS)) {
 		float moved = (frontangle - m_wrong_start_angle) * dir;	// + = mot målet
 		if (moved < -3.0) {
-			give_up("hjulen gick åt fel håll (byt tecken med styrlage tecken)");
+			give_up("hjulen gick åt fel håll (byt tecken med styrlage tecken)", false);
 			return;
 		}
 		// Nytt mätfönster
@@ -252,7 +339,7 @@ void styrpos_update(void) {
 		m_stall_since = chVTGetSystemTimeX();
 		m_stall_angle = frontangle;
 	} else if (chVTTimeElapsedSinceX(m_stall_since) > MS2ST(STYRPOS_STALL_MS)) {
-		give_up("vinkeln ändras inte fast motorn drivs (givaren fast eller styrningen kärvar)");
+		give_up("vinkeln ändras inte fast motorn drivs (givaren fast eller styrningen kärvar)", true);
 		return;
 	}
 
@@ -267,6 +354,8 @@ static void terminal_cmd_styrlage(int argc, const char **argv) {
 			m_enabled = false;
 		} else if (strcmp(argv[1], "vinkel") == 0) {
 			m_enabled = true;
+			m_fault = false;
+			m_sensor_fault = false;
 		} else if (strcmp(argv[1], "tecken") == 0) {
 			stop();
 			m_sign = -m_sign;
@@ -290,12 +379,33 @@ static void terminal_cmd_styrlage(int argc, const char **argv) {
 	commands_printf("Styrläge: %s%s. max %.2f, saktar in sista %.1f° från %.2f till %.2f, stannar inom ±%.1f°, rättar igen över %.1f°, tecken %+.0f. "
 			"Mål %.1f°, nu %.1f°. Nollställs vid omstart.\n",
 			m_enabled ? "vinkel (spaken = hjulens vinkel)" : "duty (spaken = motorns fart)",
-			(m_enabled && !styrpos_available()) ? " – givaren ej OK/kalibrerad, kör duty" : "",
+			(m_enabled && !styrpos_available()) ? " – autocentrering av eller givaren ej OK/kalibrerad, kör duty" : "",
 			(double)m_max_duty, (double)m_zone_deg, (double)m_slow_duty, (double)m_min_duty, (double)m_deadband_deg, (double)m_restart_deg, (double)m_sign,
 			(double)m_target_deg, (double)frontangle);
+	print_status();
+}
+
+static void terminal_cmd_autocentrering(int argc, const char **argv) {
+	if (argc >= 2) {
+		if (strcmp(argv[1], "pa") == 0 || strcmp(argv[1], "på") == 0 || strcmp(argv[1], "1") == 0) {
+			styrpos_set_autocentrering(true);
+			return;
+		} else if (strcmp(argv[1], "av") == 0 || strcmp(argv[1], "0") == 0) {
+			styrpos_set_autocentrering(false);
+			return;
+		}
+	}
+	print_status();
 }
 
 void styrpos_init(void) {
+	m_user_on = conf_general_autocentrering();
+	m_ok_since = chVTGetSystemTimeX();
+	terminal_register_command_callback(
+			"autocentrering",
+			"Autocentrering (spaken = hjulens vinkel) på/av, sparas i styrkortet. Utan argument: visa läget.",
+			"[pa|av]",
+			terminal_cmd_autocentrering);
 	terminal_register_command_callback(
 			"styrlage",
 			"Styrning: vinkel (spaken = hjulens vinkel, centrerar själv) eller duty (som förut). "
@@ -310,6 +420,8 @@ void styrpos_init(void) {}
 void styrpos_update(void) {}
 bool styrpos_available(void) { return false; }
 bool styrpos_vinkel_giltig(void) { return false; }
+int styrpos_status(void) { return STYRPOS_STATUS_INGEN_GIVARE; }
+bool styrpos_set_autocentrering(bool on) { (void)on; return false; }
 bool styrpos_command(int vesc_id, float magnitude) { (void)vesc_id; (void)magnitude; return false; }
 bool styrpos_target_deg(int vesc_id, float deg) { (void)vesc_id; (void)deg; return false; }
 
