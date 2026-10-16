@@ -153,6 +153,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     rssi_dbm: Some(-71),
                     signal_info: Some("4G Telia · RSRP −95 dBm · SINR 12 dB".to_string()),
                     estop: None,
+                    autocenter: Some(1),
                 };
                 if send(&mut ws_tx, &RobotMessage::Status(status)).await.is_err() {
                     break;

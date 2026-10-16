@@ -42,6 +42,19 @@ pub struct GamepadState {
     pub connected: bool,
 }
 
+/// Hur troligt det är att enheten är själva dosan (högst vinner).
+fn dosa_poang(namn: &str, har_vanster_spak: bool) -> i32 {
+    let n = namn.to_lowercase();
+    let mut p = 0;
+    if n.contains("motion sensor") || n.contains("touchpad") || n.contains("accelerometer") {
+        p -= 100;
+    }
+    if har_vanster_spak {
+        p += 10;
+    }
+    p
+}
+
 pub struct GamepadReader {
     gilrs: Gilrs,
 }
@@ -59,7 +72,17 @@ impl GamepadReader {
     pub fn poll(&mut self) -> GamepadState {
         while self.gilrs.next_event().is_some() {}
 
-        let Some((_id, gp)) = self.gilrs.gamepads().next() else {
+        // En PS4-dosa på USB syns som flera enheter i Linux ("Wireless Controller",
+        // "... Motion Sensors", "... Touchpad"), och en HP-dator kan ha en
+        // accelerometer som "joystick". Förut togs den första: blev det
+        // rörelsesensorn räknades dosan som ansluten men spakarna var alltid 0
+        // (kunden med RobAnt 3, 2026-10-16). Välj en riktig dosa med spakar.
+        let Some((_id, gp)) = self
+            .gilrs
+            .gamepads()
+            .filter(|(_, g)| g.is_connected())
+            .max_by_key(|(_, g)| dosa_poang(g.name(), g.axis_data(Axis::LeftStickY).is_some() || g.axis_code(Axis::LeftStickY).is_some()))
+        else {
             return GamepadState {
                 connected: false,
                 ..Default::default()
@@ -93,6 +116,15 @@ impl GamepadReader {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn dosa_valjs_fore_rorelsesensorn() {
+        use super::dosa_poang;
+        assert!(dosa_poang("Wireless Controller", true) > dosa_poang("Wireless Controller Motion Sensors", false));
+        assert!(dosa_poang("Sony Interactive Entertainment Wireless Controller", true)
+            > dosa_poang("Sony Interactive Entertainment Wireless Controller Touchpad", true));
+        assert!(dosa_poang("Xbox Wireless Controller", true) > dosa_poang("ST LIS3LV02DL Accelerometer", false));
+    }
+
     use super::*;
 
     #[test]
