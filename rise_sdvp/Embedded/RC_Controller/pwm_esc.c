@@ -49,6 +49,12 @@ systime_t last_reading_time = 0;
 static volatile uint32_t timer_overflow_count = 0; // antal overflow
 #endif
 static volatile uint32_t last_capture = 0;         // 32-bitars senaste capture
+#if defined(WHEELSPEED_MIN_LEVEL_S) && !defined(IS_ROVMCU)
+// Avstudsning: en nivå på givaren räknas först när den legat still WHEELSPEED_MIN_LEVEL_S.
+static volatile uint32_t wl_edge_time = 0;     // senaste flank (capture32)
+static volatile bool wl_edge_level = false;    // nivån efter senaste flanken
+static volatile bool wl_stable_level = false;  // senast godkända nivå
+#endif
 static systime_t last_tick = 0;
 #ifdef IS_ROVMCU
 static bool capture_started = false;
@@ -292,6 +298,10 @@ void tach_input_init(void) {
     TIM2->CCMR2 |= TIM_CCMR2_IC3F;    // digitalt filter: kanten måste ligga stilla 8 sampel (fDTS/32)
 #endif
     TIM2->CCER &= ~TIM_CCER_CC3P;     // Rising edge (clear bit for rising edge)
+#ifdef WHEELSPEED_MIN_LEVEL_S
+    TIM2->CCER |= TIM_CCER_CC3P | TIM_CCER_CC3NP;   // båda flankerna: avstudsningen i avbrottet
+    wl_edge_level = wl_stable_level = palReadPad(TACHO_INPUT_PORT, 2);
+#endif
     TIM2->CCER |= TIM_CCER_CC3E;      // Enable input capture
     
     // Try capturing falling edges instead
@@ -348,6 +358,30 @@ CH_IRQ_HANDLER(STM32_TIM2_HANDLER) {
         uint16_t capture16 = TIM2->CCR3;
         uint32_t capture32 = ((uint32_t)timer_overflow_count << 16) | capture16;
 
+#ifdef WHEELSPEED_MIN_LEVEL_S
+        // Störspikar från styrmotorn är µs långa, riktiga hål/plåt minst ca 10 ms
+        // (15 km/h). En stigande flank räknas först när den höga nivån legat still
+        // WHEELSPEED_MIN_LEVEL_S, dvs. vid nästa flank; pulsens tid är ändå den
+        // stigande flankens. Mk1 2026-10-19 med bara 30.21-filtret: 11-21 km/h i
+        // svängar, bilen på kartan sprang 10 m före GPS.
+        bool level = palReadPad(TACHO_INPUT_PORT, 2);
+        bool count_rise = false;
+        uint32_t edge_time = capture32;
+        // Samma nivå som förut: en spik vars båda flanker gav ett enda avbrott.
+        if (level != wl_edge_level) {
+            if ((edge_time - wl_edge_time) >= (uint32_t)(WHEELSPEED_MIN_LEVEL_S * 100000.0) &&
+                    wl_edge_level != wl_stable_level) {
+                wl_stable_level = wl_edge_level;
+                if (wl_stable_level) {
+                    count_rise = true;
+                    capture32 = wl_edge_time;
+                }
+            }
+            wl_edge_time = edge_time;
+            wl_edge_level = level;
+        }
+        if (count_rise) {
+#endif
         uint32_t delta = capture32 - last_capture;
 #ifdef WHEELSPEED_MIN_PERIOD_S
         // Störpuls (t.ex. från styrmotorn): räkna som om den aldrig kom.
@@ -367,6 +401,9 @@ CH_IRQ_HANDLER(STM32_TIM2_HANDLER) {
         update_speed_buffer(period, 0.0f);
         new_pulse = true;  // signalera till tråden
 #ifdef WHEELSPEED_MIN_PERIOD_S
+        }
+#endif
+#ifdef WHEELSPEED_MIN_LEVEL_S
         }
 #endif
 
