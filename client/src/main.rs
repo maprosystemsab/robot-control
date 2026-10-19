@@ -331,6 +331,8 @@ impl App {
             max_output: Some(self.max_output),
             pivot: self.activated && gp_state.pivot,
         };
+        let pivot_now = cmd.pivot;
+        let pivot_dir = gp_state.steering;
         self.net.send_control(cmd);
 
         let border = self.border_color();
@@ -366,7 +368,11 @@ impl App {
                             egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
                             egui::Color32::WHITE,
                         );
-                        if self.show_guide {
+                        if self.show_guide && pivot_now {
+                            // O: vänder på stället, färdlinjerna vore fel.
+                            let dir = if pivot_dir.abs() > 0.05 { pivot_dir } else { 0.0 };
+                            guide::draw_pivot(ui.painter(), dest, dir);
+                        } else if self.show_guide {
                             if let Some(deg) = guide::steering_deg(self.net.fresh_status()) {
                                 guide::draw_path(ui.painter(), dest, deg);
                             }
@@ -546,20 +552,6 @@ impl App {
                             }
                         });
                     });
-
-                // Bakhjulen ovanifrån, nedre högra hörnet.
-                if self.show_guide {
-                    let deg = guide::steering_deg(self.net.fresh_status());
-                    egui::Area::new("topview".into())
-                        .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-16.0, -16.0))
-                        .show(ctx, |ui| {
-                            egui::Frame::none()
-                                .fill(egui::Color32::from_rgba_unmultiplied(0, 0, 0, 175))
-                                .inner_margin(egui::Margin::symmetric(8.0, 8.0))
-                                .rounding(8.0)
-                                .show(ui, |ui| guide::draw_topview(ui, deg));
-                        });
-                }
 
                 if !self.activated {
                     egui::Area::new("activate".into())

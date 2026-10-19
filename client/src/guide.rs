@@ -1,6 +1,7 @@
 //! Körhjälp i kamerabilden (2026-10-14): en röd linje som visar ungefär vart
-//! roboten är på väg med nuvarande styrvinkel, som backkameran i en bil, och en
-//! liten vy ovanifrån som visar hur bakhjulen står.
+//! roboten är på väg med nuvarande styrvinkel, som backkameran i en bil. Vid
+//! bandvagnsvändning (O) visas en rotationssymbol i stället (2026-10-19; vyn
+//! ovanifrån togs bort samtidigt, styrvinkeln står redan i statusraden).
 //!
 //! RobAnt styr med bakbenen: framhjulen står still och vridningscentrum ligger
 //! på framaxelns linje. Framaxelns mitt går då i en cirkel med radien
@@ -23,7 +24,7 @@ const STRAIGHT_PERCENT: f32 = 9.0;
 /// spakens läge (firmwarens dödband) och 1° kan vara 4 % på en robot med litet utslag.
 const STRAIGHT_DEG: f32 = 2.7;
 /// Hur långt fram linjen ritas (m).
-const PATH_LEN_M: f32 = 7.0;
+const PATH_LEN_M: f32 = 4.0;
 /// Horisonten i bilden, som andel av höjden uppifrån.
 const HORIZON: f32 = 0.42;
 /// Kamerans höjd över marken i bildens skala (större = linjerna börjar längre ner).
@@ -77,9 +78,9 @@ pub fn draw_path(painter: &egui::Painter, dest: egui::Rect, deg: f32) {
     let k = deg.to_radians().tan().abs() / WHEELBASE_M;
     let len = if k > 1e-4 { PATH_LEN_M.min(std::f32::consts::FRAC_PI_3 / k) } else { PATH_LEN_M };
     for (lateral, stroke) in [
-        (-TRACK_M / 2.0, Stroke::new(4.0_f32, PATH)),
-        (TRACK_M / 2.0, Stroke::new(4.0_f32, PATH)),
-        (0.0, Stroke::new(2.0_f32, PATH_FAINT)),
+        (-TRACK_M / 2.0, Stroke::new(7.0_f32, PATH)),
+        (TRACK_M / 2.0, Stroke::new(7.0_f32, PATH)),
+        (0.0, Stroke::new(3.0_f32, PATH_FAINT)),
     ] {
         let pts: Vec<Pos2> = (0..=steps)
             .filter_map(|i| {
@@ -92,59 +93,50 @@ pub fn draw_path(painter: &egui::Painter, dest: egui::Rect, deg: f32) {
             painter.add(egui::Shape::line(pts, stroke));
         }
     }
-    // Tvärstreck var 2:a meter, som avståndsmarkering.
-    for m in [2.0_f32, 4.0, 6.0].into_iter().filter(|m| *m <= len) {
+    // Tvärstreck varje meter, som avståndsmarkering.
+    for m in [1.0_f32, 2.0, 3.0, 4.0].into_iter().filter(|m| *m <= len) {
         let a = path_point(deg, -TRACK_M / 2.0, m);
         let b = path_point(deg, TRACK_M / 2.0, m);
         if let (Some(a), Some(b)) = (project(dest, a.0, a.1), project(dest, b.0, b.1)) {
-            painter.line_segment([a, b], Stroke::new(2.0_f32, PATH_FAINT));
+            painter.line_segment([a, b], Stroke::new(3.0_f32, PATH_FAINT));
         }
     }
 }
 
-/// Liten vy ovanifrån: robotens kropp, framhjulen raka och bakhjulen vridna.
-/// Framåt är uppåt. Bakhjulen vrids åt motsatt håll mot svängen.
-pub fn draw_topview(ui: &mut egui::Ui, deg: Option<f32>) {
-    let size = egui::vec2(110.0, 150.0);
-    let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-    let p = ui.painter();
-    let c = rect.center();
-    let body = egui::Rect::from_center_size(c, egui::vec2(46.0, 92.0));
-    p.rect_filled(body, 6.0, Color32::from_rgba_unmultiplied(90, 100, 110, 200));
-    p.rect_stroke(body, 6.0, Stroke::new(1.0_f32, Color32::from_gray(190)));
-    // Pil framåt
-    let tip = Pos2::new(c.x, body.top() - 14.0);
-    p.line_segment([Pos2::new(c.x, body.top()), tip], Stroke::new(2.0_f32, Color32::from_gray(200)));
-    p.line_segment([tip, tip + egui::vec2(-5.0, 6.0)], Stroke::new(2.0_f32, Color32::from_gray(200)));
-    p.line_segment([tip, tip + egui::vec2(5.0, 6.0)], Stroke::new(2.0_f32, Color32::from_gray(200)));
-
-    let wheel = |center: Pos2, angle_deg: f32, color: Color32| {
-        let (sin, cos) = angle_deg.to_radians().sin_cos();
-        let half = egui::vec2(sin, -cos) * 14.0; // längs hjulet, 0° = rakt fram
-        p.line_segment([center - half, center + half], Stroke::new(9.0_f32, color));
+/// Rotationssymbol mitt i kamerabilden `dest` vid bandvagnsvändning: en nästan
+/// hel cirkel med pilspets. `dir` > 0 = medurs (höger), < 0 = moturs, 0 = ingen spets.
+pub fn draw_pivot(painter: &egui::Painter, dest: egui::Rect, dir: f32) {
+    let painter = painter.with_clip_rect(dest);
+    let c = dest.center();
+    let r = dest.height().min(dest.width()) * 0.14;
+    let stroke = Stroke::new(9.0_f32, PATH);
+    // Bågen från 30° till 330° (0° = uppåt, medurs), öppningen överst.
+    let at = |deg: f32| {
+        let (sin, cos) = deg.to_radians().sin_cos();
+        c + egui::vec2(sin, -cos) * r
     };
-    let front_y = body.top() + 14.0;
-    let rear_y = body.bottom() - 14.0;
-    let dx = 34.0;
-    let wheel_col = Color32::from_gray(25);
-    wheel(Pos2::new(c.x - dx, front_y), 0.0, wheel_col);
-    wheel(Pos2::new(c.x + dx, front_y), 0.0, wheel_col);
-    let rear = deg.map(|d| -d).unwrap_or(0.0);
-    let rear_col = if deg.is_some() { PATH } else { Color32::from_gray(90) };
-    wheel(Pos2::new(c.x - dx, rear_y), rear, rear_col);
-    wheel(Pos2::new(c.x + dx, rear_y), rear, rear_col);
-
-    let text = match deg {
-        Some(d) if d == 0.0 => "rakt".to_string(),
-        Some(d) => format!("{} {:.0}°", if d > 0.0 { "H" } else { "V" }, d.abs()),
-        None => "ingen givare".to_string(),
-    };
-    p.text(
-        Pos2::new(c.x, rect.bottom() - 2.0),
-        egui::Align2::CENTER_BOTTOM,
-        text,
-        egui::FontId::proportional(13.0),
-        Color32::from_rgb(225, 235, 230),
+    let pts: Vec<Pos2> = (0..=60).map(|i| at(30.0 + 300.0 * i as f32 / 60.0)).collect();
+    painter.add(egui::Shape::line(pts, stroke));
+    if dir != 0.0 {
+        // Spetsen i bågens ände i färdriktningen, pekar längs tangenten.
+        let end = if dir > 0.0 { 330.0_f32 } else { 30.0 };
+        let tip = at(end);
+        let (sin, cos) = end.to_radians().sin_cos();
+        let tangent = egui::vec2(cos, sin) * dir.signum(); // medurs tangent
+        let normal = egui::vec2(sin, -cos);
+        let base = tip - tangent * 26.0;
+        painter.add(egui::Shape::convex_polygon(
+            vec![tip + tangent * 8.0, base + normal * 20.0, base - normal * 20.0],
+            PATH,
+            Stroke::NONE,
+        ));
+    }
+    painter.text(
+        c,
+        egui::Align2::CENTER_CENTER,
+        "VÄNDNING",
+        egui::FontId::proportional(r * 0.28),
+        PATH,
     );
 }
 
