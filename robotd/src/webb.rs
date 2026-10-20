@@ -17,7 +17,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::response::{Html, IntoResponse};
+use axum::extract::State;
+use axum::http::{header::ORIGIN, HeaderMap, StatusCode};
+use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use axum_server::tls_rustls::RustlsConfig;
@@ -56,7 +58,8 @@ async fn run(addr: SocketAddr) -> std::io::Result<()> {
     let tls = RustlsConfig::from_pem(cert, key).await?;
     let app = Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
-        .route("/video", get(video_ws));
+        .route("/video", get(video_ws))
+        .with_state(Arc::new(format!("https://{addr}")));
 
     // Som styrporten: WireGuard-adressen kan saknas en stund vid uppstart.
     let mut failures = 0u32;
@@ -99,7 +102,7 @@ fn load_or_create_cert(ip: IpAddr) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
     if let Some(dir) = Path::new(CERT_PATH).parent() {
         let _ = std::fs::create_dir_all(dir);
     }
-    if let Err(e) = std::fs::write(CERT_PATH, &c).and_then(|_| std::fs::write(KEY_PATH, &k)) {
+    if let Err(e) = std::fs::write(CERT_PATH, &c).and_then(|_| write_private(KEY_PATH, &k)) {
         tracing::warn!("Webb: kunde inte spara certifikatet ({e}); ett nytt skapas vid nästa start.");
     } else {
         tracing::info!("Webb: nytt självsignerat certifikat för {ip} sparat i {CERT_PATH}");
@@ -107,8 +110,26 @@ fn load_or_create_cert(ip: IpAddr) -> std::io::Result<(Vec<u8>, Vec<u8>)> {
     Ok((c.into_bytes(), k.into_bytes()))
 }
 
-async fn video_ws(ws: WebSocketUpgrade) -> impl IntoResponse {
-    ws.on_upgrade(serve_video)
+/// Nyckeln läsbar bara för root.
+fn write_private(path: &str, data: &str) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new().write(true).create(true).truncate(true).mode(0o600).open(path)?;
+    f.write_all(data.as_bytes())
+}
+
+/// Bara robotens egen sida får öppna videon, inte en främmande sida som
+/// någon på VPN:et råkar besöka (webbläsaren skickar alltid Origin).
+fn origin_ok(headers: &HeaderMap, own: &str) -> bool {
+    headers.get(ORIGIN).and_then(|v| v.to_str().ok()) == Some(own)
+}
+
+async fn video_ws(State(own): State<Arc<String>>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
+    if !origin_ok(&headers, &own) {
+        tracing::warn!("Webb: videoanslutning nekad, Origin {:?}", headers.get(ORIGIN));
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    ws.on_upgrade(serve_video).into_response()
 }
 
 async fn serve_video(mut socket: WebSocket) {
@@ -166,6 +187,17 @@ mod tests {
         let pem = String::from_utf8(c.clone()).unwrap();
         assert!(pem.starts_with("-----BEGIN CERTIFICATE-----"), "{pem}");
         RustlsConfig::from_pem(c, k).await.expect("rustls godtar certifikatet");
+    }
+
+    #[test]
+    fn bara_egen_sida_far_titta() {
+        let own = "https://192.168.200.14:9443";
+        let mut h = HeaderMap::new();
+        assert!(!origin_ok(&h, own));
+        h.insert(ORIGIN, "https://evil.example".parse().unwrap());
+        assert!(!origin_ok(&h, own));
+        h.insert(ORIGIN, own.parse().unwrap());
+        assert!(origin_ok(&h, own));
     }
 
     #[test]
