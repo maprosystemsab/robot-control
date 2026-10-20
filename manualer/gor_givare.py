@@ -14,7 +14,7 @@ from reportlab.graphics.shapes import Circle, Drawing, Line, PolyLine, Rect, Str
 from reportlab.lib import colors
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from pdfstil import BREDD, bygg, h1, h2, p, punkter, tabell, tips, varning  # noqa: E402
+from pdfstil import BREDD, bild, bygg, h1, h2, p, punkter, tabell, tips, varning  # noqa: E402
 
 UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
 
@@ -164,6 +164,13 @@ def tråd(färg, namn):
 
 def guide():
     c = [
+        h1("Kontakten på kortet: blå längst till vänster"),
+        varning("<b>Det viktiga är att den blå ledaren sitter längst till vänster, mot den stora svarta "
+                "fyrkanten</b> (spolen märkt 100), precis som på bilden. Röd hamnar i mitten och gul till höger. "
+                "Sitter kontakten vänd åt andra hållet eller ett steg fel blir kopplingen fel."),
+        bild("givarkontakt_bla.jpg", 135, "Kontakten J9 bredvid GNSS-uttaget. Grön ram: kontakten. Vit ram: den "
+             "svarta fyrkanten som den blå ledaren ska vara mot."),
+
         varning("<b>Delvis bekräftat.</b> Kortet är CarController v1.0 (DY-TECH) med u-blox ZED-F9P. På baksidan är "
                 "TX- och RX-kontakterna märkta <b>(TX) GND · 5V · S</b> och <b>(RX) GND · 5V · S</b>. <b>S är den "
                 "fyrkantiga lödpunkten</b>, närmast u-blox-modulen. Att TX-S går till processorns PA2 och RX-S till "
