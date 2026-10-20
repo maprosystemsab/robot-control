@@ -15,16 +15,23 @@
   #bild { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; }
   #yta { position: fixed; inset: 0; touch-action: none; }
   #status { position: fixed; left: max(8px, env(safe-area-inset-left)); top: max(8px, env(safe-area-inset-top));
-    background: var(--panel); border-radius: 10px; padding: 6px 10px; font-size: 14px;
-    font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 2px 12px;
-    max-width: calc(100% - 200px); pointer-events: none; }
+    background: var(--panel); border-radius: 10px; padding: 5px 9px; font-size: 13px;
+    font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 2px 10px;
+    max-width: calc(100% - 230px); pointer-events: none; }
   #status b { font-weight: 600; }
   #knappar { position: fixed; right: max(8px, env(safe-area-inset-right)); top: max(8px, env(safe-area-inset-top));
-    display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 170px; z-index: 2; }
+    display: flex; gap: 8px; z-index: 2; }
+  #knappar button { padding: 12px 14px; }
+  #installningar { position: fixed; right: max(8px, env(safe-area-inset-right)); top: calc(max(8px, env(safe-area-inset-top)) + 58px);
+    background: rgba(20,24,23,.92); border-radius: 14px; padding: 10px; display: none; flex-direction: column;
+    gap: 8px; width: 190px; z-index: 3; }
+  #installningar.oppen { display: flex; }
+  #vand { position: fixed; z-index: 2; width: 120px; }
   button { font: 600 15px/1 -apple-system, system-ui, sans-serif; color: #fff; border: 0; border-radius: 12px;
     padding: 12px 10px; background: rgba(40,48,46,.85); touch-action: manipulation; }
   button:active { filter: brightness(1.3); }
-  #aktivera { font-size: 17px; padding: 16px 10px; background: #2b6b4f; }
+  #aktivera { font-size: 17px; background: #2b6b4f; min-width: 120px; }
+  #kugg { font-size: 20px; }
   #aktivera.pa { background: var(--red); }
   #aktivera:disabled { background: #444; color: #999; }
   #ljus.pa { background: #b08a1e; }
@@ -47,10 +54,13 @@
 <div id="status"></div>
 <div id="knappar">
   <button id="aktivera">AKTIVERA</button>
+  <button id="kugg" aria-label="Inställningar">⚙</button>
+</div>
+<div id="installningar">
   <button id="ljus">Ljus</button>
   <div class="rad"><button id="maxned">−</button><div id="maxtxt"></div><button id="maxupp">+</button></div>
-  <button id="vand">VÄND (håll in)</button>
 </div>
+<button id="vand">VÄND</button>
 <div id="meddelande">Ansluter…</div>
 <script>
 "use strict";
@@ -84,10 +94,20 @@ function visa(t) { meddelande.textContent = t || ""; }
 
 // ---------- Joystickar (flera fingrar via Pointer Events) ----------
 const sticks = new Map(); // pointerId -> { sida, x0, y0, x, y }
+// Fasta tumplattor nere i hörnen; spaken utgår ändå från där tummen landar.
+const platta = { v: { x: 0, y: 0 }, h: { x: 0, y: 0 } };
+const PLATTA_R = 2.2 * STICK_R; // träffyta runt plattan
 function storlek() {
   const dpr = window.devicePixelRatio || 1;
   yta.width = innerWidth * dpr; yta.height = innerHeight * dpr;
   yctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const kant = STICK_R + 40;
+  const y = innerHeight - Math.max(kant, innerHeight * (innerWidth > innerHeight ? 0.28 : 0.16));
+  platta.v = { x: Math.max(kant, innerWidth * 0.18), y };
+  platta.h = { x: innerWidth - Math.max(kant, innerWidth * 0.18), y };
+  const v = document.getElementById("vand");
+  v.style.left = (platta.v.x - 60) + "px";
+  v.style.top = (platta.v.y - STICK_R - 110) + "px";
 }
 addEventListener("resize", storlek); storlek();
 
@@ -103,7 +123,9 @@ function uppdateraSpakar() {
   }
 }
 yta.addEventListener("pointerdown", (e) => {
+  $("installningar").classList.remove("oppen");
   const sida = e.clientX < innerWidth / 2 ? "v" : "h";
+  if (Math.hypot(e.clientX - platta[sida].x, e.clientY - platta[sida].y) > PLATTA_R) return; // bara på plattan
   for (const p of sticks.values()) if (p.sida === sida) return; // en tumme per sida
   yta.setPointerCapture(e.pointerId);
   sticks.set(e.pointerId, { sida, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
@@ -118,8 +140,22 @@ yta.addEventListener("pointerup", slapp);
 yta.addEventListener("pointercancel", slapp);
 yta.addEventListener("lostpointercapture", slapp);
 
+function ritaPlatta(sida) {
+  const c = platta[sida], vert = sida === "v";
+  yctx.lineWidth = 2; yctx.strokeStyle = "rgba(255,255,255,.35)"; yctx.fillStyle = "rgba(0,0,0,.22)";
+  yctx.beginPath();
+  if (vert) yctx.roundRect(c.x - 34, c.y - STICK_R - 34, 68, 2 * STICK_R + 68, 34);
+  else yctx.roundRect(c.x - STICK_R - 34, c.y - 34, 2 * STICK_R + 68, 68, 34);
+  yctx.fill(); yctx.stroke();
+  yctx.beginPath(); yctx.arc(c.x, c.y, 30, 0, 2 * Math.PI);
+  yctx.fillStyle = "rgba(255,255,255,.18)"; yctx.fill(); yctx.strokeStyle = "rgba(255,255,255,.5)"; yctx.stroke();
+  yctx.fillStyle = "rgba(255,255,255,.55)"; yctx.font = "600 12px -apple-system, sans-serif";
+  yctx.textAlign = "center"; yctx.textBaseline = "middle";
+  yctx.fillText(vert ? "FART" : "STYR", c.x, c.y + (vert ? STICK_R + 50 : 50));
+}
 function ritaSpakar() {
   yctx.clearRect(0, 0, innerWidth, innerHeight);
+  for (const sida of ["v", "h"]) if (![...sticks.values()].some((p) => p.sida === sida)) ritaPlatta(sida);
   for (const p of sticks.values()) {
     const dx = p.sida === "h" ? Math.max(-STICK_R, Math.min(STICK_R, p.x - p.x0)) : 0;
     const dy = p.sida === "v" ? Math.max(-STICK_R, Math.min(STICK_R, p.y - p.y0)) : 0;
@@ -140,7 +176,7 @@ function ritaKnappar() {
   const a = $("aktivera");
   a.disabled = !s.driver;
   a.classList.toggle("pa", s.aktiv);
-  a.textContent = !s.driver ? "Ej förare" : s.aktiv ? `AKTIV · max ${s.max.toFixed(2)} – tryck för att låsa` : "AKTIVERA";
+  a.textContent = !s.driver ? "Ej förare" : s.aktiv ? `AKTIV ${s.max.toFixed(2)}` : "AKTIVERA";
   $("ljus").classList.toggle("pa", s.ljus);
   $("vand").classList.toggle("pa", s.pivot);
   $("maxtxt").textContent = "Max " + s.max.toFixed(2);
@@ -153,6 +189,7 @@ $("aktivera").addEventListener("click", () => {
   if (s.gas !== 0 || s.styr !== 0) { visa("Släpp spakarna innan du aktiverar"); return; }
   s.aktiv = true; visa(""); ritaKnappar();
 });
+$("kugg").addEventListener("click", () => $("installningar").classList.toggle("oppen"));
 $("ljus").addEventListener("click", () => { s.ljus = !s.ljus; s.senastTryck = Date.now(); ritaKnappar(); });
 function nyMax(d) {
   s.max = clampMax(s.max + d); s.senastTryck = Date.now();
