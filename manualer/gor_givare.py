@@ -166,8 +166,9 @@ def guide():
     c = [
         h1("Kontakten på kortet: blå längst till vänster"),
         varning("<b>Det viktiga är att den blå ledaren sitter längst till vänster, mot den stora svarta "
-                "fyrkanten</b> (spolen märkt 100), precis som på bilden. Röd hamnar i mitten och gul till höger. "
-                "Sitter kontakten vänd åt andra hållet eller ett steg fel blir kopplingen fel."),
+                "fyrkanten</b> (spolen märkt 100), precis som på bilden. De andra ledarnas färger varierar mellan "
+                "kablarna, så gå bara efter den blå. Kontakterna är limmade ihop, så sitter den blå rätt sitter "
+                "resten också rätt."),
         bild("givarkontakt_bla.jpg", 135, "Kontakten J9 bredvid GNSS-uttaget. Grön ram: kontakten. Vit ram: den "
              "svarta fyrkanten som den blå ledaren ska vara mot."),
 
