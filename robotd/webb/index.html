@@ -48,7 +48,7 @@ function render() {
     `<b>Kodek:</b> ${st.codec || "–"} ${st.supported == null ? "" : yes(st.supported)}<br>` +
     `<b>Bild:</b> ${st.w}×${st.h}, ${st.fps.toFixed(1)} bilder/s, ${Math.round(st.kbps)} kbit/s<br>` +
     `<b>Fördröjning (ca):</b> ${delay} &nbsp; <b>Fel:</b> ${st.errors}<br>` +
-    `<b>Skärmen hålls tänd:</b> ${st.wake}`;
+    `<b>Skärmen hålls tänd:</b> ${st.wake}${st.wake.includes("ja") ? "" : " – tryck på skärmen"}`;
 }
 setInterval(render, 500);
 
@@ -70,6 +70,9 @@ async function keepAwake() {
   } catch (e) { st.wake = "nej (" + e.name + ")"; }
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) keepAwake(); });
+// Safari ger bara tillstånd efter ett tryck på skärmen (NotAllowedError annars).
+document.addEventListener("touchend", () => { if (!st.wake.includes("ja")) keepAwake(); });
+document.addEventListener("click", () => { if (!st.wake.includes("ja")) keepAwake(); });
 keepAwake();
 
 // H.264 Annex B: hitta NAL-enheterna i en bild.
