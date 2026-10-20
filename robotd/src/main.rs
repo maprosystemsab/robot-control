@@ -14,6 +14,7 @@ mod video;
 mod vehicle;
 mod vesc_can;
 mod watchdog;
+mod webb;
 
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -97,6 +98,8 @@ async fn main() {
     // Kameraströmmen (egen port, se video.rs). Ett fel där får aldrig stoppa
     // styrningen, så den startas fristående och loggar bara.
     video::spawn(cfg.video.clone(), &cfg.bind_addr);
+    // Telefon/iPad: kamerabilden i webbläsaren (https, port 9443, se webb.rs).
+    webb::spawn(&cfg.bind_addr);
 
     let mut throttle_ramp = RateLimiter::new(2.0);
     let mut steering_ramp = RateLimiter::new(4.0);

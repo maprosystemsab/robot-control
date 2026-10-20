@@ -49,16 +49,41 @@ const IDLE_GRACE: Duration = Duration::from_secs(3);
 const STALL_TIMEOUT: Duration = Duration::from_secs(5);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(5);
 
-struct Frame {
-    keyframe: bool,
-    capture_ms: u64,
-    data: Vec<u8>,
+pub struct Frame {
+    pub keyframe: bool,
+    pub capture_ms: u64,
+    pub data: Vec<u8>,
+}
+
+/// Kameraströmmen delad mellan TCP-porten (Robotstyrning) och webbsidan
+/// (webb.rs, telefon/iPad). Samma kamera, samma ffmpeg; den går så länge
+/// någon av dem tittar.
+#[derive(Clone)]
+pub struct VideoHub {
+    frames: broadcast::Sender<Arc<Frame>>,
+    viewers: Arc<watch::Sender<usize>>,
+}
+
+static HUB: std::sync::OnceLock<VideoHub> = std::sync::OnceLock::new();
+
+/// Strömmen, om videon är påslagen (`None` = video.enabled=false).
+pub fn hub() -> Option<VideoHub> {
+    HUB.get().cloned()
+}
+
+impl VideoHub {
+    /// Ny tittare: bildkö + räknare som räknas ner när guarden släpps.
+    pub fn subscribe(&self) -> (broadcast::Receiver<Arc<Frame>>, ViewerGuard) {
+        // Prenumerera OCH räkna upp innan bilder hämtas, så inget missas.
+        let rx = self.frames.subscribe();
+        (rx, ViewerGuard::new(self.viewers.clone()))
+    }
 }
 
 /// Räknar antalet anslutna tittare via en `watch`-kanal som kamerauppgiften
 /// väntar på. Släpps guarden (anslutningen dör, på vilket sätt som helst)
 /// räknas den ner — inga läckta tittare.
-struct ViewerGuard(Arc<watch::Sender<usize>>);
+pub struct ViewerGuard(Arc<watch::Sender<usize>>);
 
 impl ViewerGuard {
     fn new(tx: Arc<watch::Sender<usize>>) -> Self {
@@ -88,8 +113,15 @@ pub fn spawn(cfg: VideoConfig, control_bind_addr: &str) {
         }
     };
     addr.set_port(cfg.port);
+    // Strömmen och kamerauppgiften startas direkt, oberoende av TCP-porten,
+    // så att webbsidan har bild även om porten inte gick att binda.
+    let (frames_tx, _) = broadcast::channel::<Arc<Frame>>(QUEUE_FRAMES);
+    let (viewers_tx, viewers_rx) = watch::channel(0usize);
+    let hub = VideoHub { frames: frames_tx.clone(), viewers: Arc::new(viewers_tx) };
+    let _ = HUB.set(hub.clone());
+    tokio::spawn(camera_task(cfg.clone(), frames_tx, viewers_rx));
     tokio::spawn(async move {
-        if let Err(e) = run(cfg, addr).await {
+        if let Err(e) = run(cfg, addr, hub).await {
             tracing::error!("Videotjänsten avslutades med fel: {e}");
         }
     });
@@ -104,7 +136,7 @@ fn bind_listener(addr: SocketAddr) -> std::io::Result<TcpListener> {
     socket.listen(8)
 }
 
-async fn run(cfg: VideoConfig, addr: SocketAddr) -> std::io::Result<()> {
+async fn run(cfg: VideoConfig, addr: SocketAddr, hub: VideoHub) -> std::io::Result<()> {
     // Vid uppstart kan WireGuard-adressen saknas en stund — försök igen.
     let mut failures = 0u32;
     let listener = loop {
@@ -124,12 +156,6 @@ async fn run(cfg: VideoConfig, addr: SocketAddr) -> std::io::Result<()> {
         cfg.width, cfg.height, cfg.fps, cfg.bitrate_kbps, cfg.encoder
     );
 
-    let (frames_tx, _) = broadcast::channel::<Arc<Frame>>(QUEUE_FRAMES);
-    let (viewers_tx, viewers_rx) = watch::channel(0usize);
-    let viewers_tx = Arc::new(viewers_tx);
-
-    tokio::spawn(camera_task(cfg, frames_tx.clone(), viewers_rx));
-
     loop {
         let (stream, peer) = match listener.accept().await {
             Ok(x) => x,
@@ -142,8 +168,7 @@ async fn run(cfg: VideoConfig, addr: SocketAddr) -> std::io::Result<()> {
         let _ = stream.set_nodelay(true);
         // Prenumerera OCH räkna upp innan uppgiften startar, så kameran
         // hinner startas och inga bilder missas i glappet.
-        let rx = frames_tx.subscribe();
-        let guard = ViewerGuard::new(viewers_tx.clone());
+        let (rx, guard) = hub.subscribe();
         tokio::spawn(async move {
             tracing::info!("Video: tittare ansluten från {peer}");
             match serve_client(stream, rx).await {

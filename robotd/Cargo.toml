@@ -7,6 +7,9 @@ version.workspace = true
 relay-protocol = { path = "../relay-protocol" }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
+axum-server = { version = "0.7", features = ["tls-rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] } # https för telefon/iPad (webb.rs)
+rcgen = "0.12"           # självsignerat certifikat för webb.rs
 futures-util = "0.3"
 socketcan = "3"
 serde = { version = "1", features = ["derive"] }
