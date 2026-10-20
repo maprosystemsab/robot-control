@@ -26,9 +26,9 @@ const STRAIGHT_PERCENT: f32 = 9.0;
 const STRAIGHT_DEG: f32 = 2.7;
 /// Hur långt fram linjen ritas (m).
 const PATH_LEN_M: f32 = 4.0;
-/// Hjullinjerna flyttas så här många pixlar utåt var (40 px bredare mellanrum totalt,
+/// Hjullinjerna flyttas så här många pixlar utåt var (80 px bredare mellanrum totalt,
 /// önskemål 2026-10-20; kamerans placering är inte inmätt).
-const SPREAD_PX: f32 = 20.0;
+const SPREAD_PX: f32 = 40.0;
 /// Horisonten i bilden, som andel av höjden uppifrån.
 const HORIZON: f32 = 0.42;
 /// Kamerans höjd över marken i bildens skala (större = linjerna börjar längre ner).
