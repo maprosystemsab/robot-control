@@ -78,9 +78,9 @@ pub fn draw_path(painter: &egui::Painter, dest: egui::Rect, deg: f32) {
     let k = deg.to_radians().tan().abs() / WHEELBASE_M;
     let len = if k > 1e-4 { PATH_LEN_M.min(std::f32::consts::FRAC_PI_3 / k) } else { PATH_LEN_M };
     for (lateral, stroke) in [
-        (-TRACK_M / 2.0, Stroke::new(7.0_f32, PATH)),
-        (TRACK_M / 2.0, Stroke::new(7.0_f32, PATH)),
-        (0.0, Stroke::new(3.0_f32, PATH_FAINT)),
+        (-TRACK_M / 2.0, Stroke::new(40.0_f32, PATH)),
+        (TRACK_M / 2.0, Stroke::new(40.0_f32, PATH)),
+        (0.0, Stroke::new(8.0_f32, PATH_FAINT)),
     ] {
         let pts: Vec<Pos2> = (0..=steps)
             .filter_map(|i| {
@@ -98,7 +98,7 @@ pub fn draw_path(painter: &egui::Painter, dest: egui::Rect, deg: f32) {
         let a = path_point(deg, -TRACK_M / 2.0, m);
         let b = path_point(deg, TRACK_M / 2.0, m);
         if let (Some(a), Some(b)) = (project(dest, a.0, a.1), project(dest, b.0, b.1)) {
-            painter.line_segment([a, b], Stroke::new(3.0_f32, PATH_FAINT));
+            painter.line_segment([a, b], Stroke::new(6.0_f32, PATH_FAINT));
         }
     }
 }
