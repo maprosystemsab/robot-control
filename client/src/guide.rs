@@ -26,6 +26,9 @@ const STRAIGHT_PERCENT: f32 = 9.0;
 const STRAIGHT_DEG: f32 = 2.7;
 /// Hur långt fram linjen ritas (m).
 const PATH_LEN_M: f32 = 4.0;
+/// Hjullinjerna flyttas så här många pixlar utåt var (4 px bredare mellanrum totalt,
+/// önskemål 2026-10-20; kamerans placering är inte inmätt).
+const SPREAD_PX: f32 = 2.0;
 /// Horisonten i bilden, som andel av höjden uppifrån.
 const HORIZON: f32 = 0.42;
 /// Kamerans höjd över marken i bildens skala (större = linjerna börjar längre ner).
@@ -87,7 +90,7 @@ pub fn draw_path(painter: &egui::Painter, dest: egui::Rect, deg: f32) {
             .filter_map(|i| {
                 let s = len * i as f32 / steps as f32;
                 let (x, z) = path_point(deg, lateral, s);
-                project(dest, x, z)
+                project(dest, x, z).map(|p| p + egui::vec2(lateral.signum() * SPREAD_PX, 0.0))
             })
             .collect();
         if pts.len() >= 2 {
@@ -99,6 +102,7 @@ pub fn draw_path(painter: &egui::Painter, dest: egui::Rect, deg: f32) {
         let a = path_point(deg, -TRACK_M / 2.0, m);
         let b = path_point(deg, TRACK_M / 2.0, m);
         if let (Some(a), Some(b)) = (project(dest, a.0, a.1), project(dest, b.0, b.1)) {
+            let (a, b) = (a - egui::vec2(SPREAD_PX, 0.0), b + egui::vec2(SPREAD_PX, 0.0));
             painter.line_segment([a, b], Stroke::new(3.0_f32, PATH_FAINT));
         }
     }
