@@ -1,15 +1,15 @@
-//! Robotstyrning i webbläsaren (telefon/iPad), steg 1 2026-10-20: bara
-//! kamerabilden. HTTPS på `PORT` med ett självsignerat certifikat, eftersom
-//! Safari bara avkodar video (WebCodecs) och håller skärmen tänd på
-//! https-sidor.
+//! Robotstyrning i webbläsaren (telefon/iPad), 2026-10-20. HTTPS på `PORT`
+//! med ett självsignerat certifikat, eftersom Safari bara avkodar video
+//! (WebCodecs) och håller skärmen tänd på https-sidor.
 //!
-//!   GET /        testsidan (webb/index.html, inbakad i programmet)
+//!   GET /        körsidan (webb/index.html, inbakad i programmet)
 //!   GET /video   WebSocket med kamerabilden, en binär bild per meddelande:
 //!                [1 byte: 1 = nyckelbild][8 byte: tagen, ms sedan 1970, BE][H.264 Annex B]
+//!   GET /ws      styranslutningen, samma protokoll och regler som robotd:s
+//!                `/ws` (server.rs): Connect först, en förare i taget.
 //!
-//! Ingen styrning härifrån: sidan kan bara titta. Samma kamera och ffmpeg som
-//! Robotstyrnings videoport (video.rs). Åtkomst som för videoporten: den som
-//! når robotens WireGuard-adress kan titta.
+//! Båda WebSocketarna godtas bara från robotens egen sida (Origin). Videon är
+//! samma kamera och ffmpeg som Robotstyrnings videoport (video.rs).
 
 use std::net::{IpAddr, SocketAddr};
 use std::path::Path;
@@ -59,6 +59,7 @@ async fn run(addr: SocketAddr) -> std::io::Result<()> {
     let app = Router::new()
         .route("/", get(|| async { Html(INDEX_HTML) }))
         .route("/video", get(video_ws))
+        .route("/ws", get(control_ws))
         .with_state(Arc::new(format!("https://{addr}")));
 
     // Som styrporten: WireGuard-adressen kan saknas en stund vid uppstart.
@@ -130,6 +131,17 @@ async fn video_ws(State(own): State<Arc<String>>, headers: HeaderMap, ws: WebSoc
         return StatusCode::FORBIDDEN.into_response();
     }
     ws.on_upgrade(serve_video).into_response()
+}
+
+/// Styrning från telefonen: samma protokoll och regler som Robotstyrning
+/// (crate::server), men bara från robotens egen sida.
+async fn control_ws(State(own): State<Arc<String>>, headers: HeaderMap, ws: WebSocketUpgrade) -> Response {
+    if !origin_ok(&headers, &own) {
+        tracing::warn!("Webb: styranslutning nekad, Origin {:?}", headers.get(ORIGIN));
+        return StatusCode::FORBIDDEN.into_response();
+    }
+    tracing::info!("Webb: styranslutning från telefon/iPad");
+    crate::server::control_upgrade(ws)
 }
 
 async fn serve_video(mut socket: WebSocket) {

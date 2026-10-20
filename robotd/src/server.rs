@@ -74,6 +74,23 @@ pub struct ServerHandles {
     pub clients_connected: watch::Receiver<bool>,
 }
 
+/// Styranslutningen (samma som `/ws`) för webbsidan i webb.rs, som tar emot
+/// den över https. Sätts av `spawn`.
+static CONTROL: std::sync::OnceLock<(AppState, Arc<Mutex<Vec<mpsc::Sender<RobotMessage>>>>)> =
+    std::sync::OnceLock::new();
+
+/// Uppgraderar en webbanslutning till en styranslutning, exakt som `/ws`
+/// (Connect först, en förare i taget). Kontrollen av avsändaren görs i webb.rs.
+pub fn control_upgrade(ws: WebSocketUpgrade) -> axum::response::Response {
+    match CONTROL.get() {
+        Some((state, targets)) => {
+            let (state, targets) = (state.clone(), targets.clone());
+            ws.on_upgrade(move |socket| handle_socket(socket, state, targets))
+        }
+        None => axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    }
+}
+
 /// Startar servern på `bind_addr` (t.ex. "192.168.200.8:9000" eller
 /// "0.0.0.0:9000"). Körs i en egen task; returnerar handtag för
 /// huvudloopen i main.rs.
@@ -108,6 +125,8 @@ pub fn spawn(bind_addr: String) -> ServerHandles {
             }
         });
     }
+
+    let _ = CONTROL.set((state.clone(), broadcast_targets.clone()));
 
     {
         let state = state.clone();

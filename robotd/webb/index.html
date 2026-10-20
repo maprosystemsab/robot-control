@@ -4,168 +4,358 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>Robotstyrning</title>
 <style>
-  :root { color-scheme: dark; }
+  :root { color-scheme: dark; --red: #ff4a3d; --green: #3ecf7a; --yellow: #f2c25a; --panel: rgba(0,0,0,.62); }
   html, body { margin: 0; height: 100%; background: #000; color: #e6ece9;
-    font: 15px/1.4 -apple-system, system-ui, sans-serif; overflow: hidden; }
-  canvas { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-  #diag { position: fixed; left: max(10px, env(safe-area-inset-left)); top: max(10px, env(safe-area-inset-top));
-    background: rgba(0,0,0,.65); border-radius: 10px; padding: 8px 12px; font-size: 13px;
-    font-variant-numeric: tabular-nums; max-width: calc(100% - 40px); }
-  #diag b { font-weight: 600; }
-  .ok { color: #5cd38f; } .bad { color: #ff7a6e; } .warn { color: #f2c25a; }
-  #msg { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
-    text-align: center; padding: 24px; font-size: 17px; pointer-events: none; }
+    font: 15px/1.35 -apple-system, system-ui, sans-serif; overflow: hidden;
+    -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+  #bild { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+  #yta { position: fixed; inset: 0; touch-action: none; }
+  #status { position: fixed; left: max(8px, env(safe-area-inset-left)); top: max(8px, env(safe-area-inset-top));
+    background: var(--panel); border-radius: 10px; padding: 6px 10px; font-size: 14px;
+    font-variant-numeric: tabular-nums; display: flex; flex-wrap: wrap; gap: 2px 12px;
+    max-width: calc(100% - 200px); pointer-events: none; }
+  #status b { font-weight: 600; }
+  #knappar { position: fixed; right: max(8px, env(safe-area-inset-right)); top: max(8px, env(safe-area-inset-top));
+    display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 170px; z-index: 2; }
+  button { font: 600 15px/1 -apple-system, system-ui, sans-serif; color: #fff; border: 0; border-radius: 12px;
+    padding: 12px 10px; background: rgba(40,48,46,.85); touch-action: manipulation; }
+  button:active { filter: brightness(1.3); }
+  #aktivera { font-size: 17px; padding: 16px 10px; background: #2b6b4f; }
+  #aktivera.pa { background: var(--red); }
+  #aktivera:disabled { background: #444; color: #999; }
+  #ljus.pa { background: #b08a1e; }
+  #vand { background: #3a4a70; }
+  #vand.pa { background: #6a85d8; }
+  .rad { display: flex; gap: 8px; }
+  .rad button { flex: 1; padding: 12px 0; font-size: 20px; }
+  #maxtxt { flex: 1.4; display: flex; align-items: center; justify-content: center; background: var(--panel);
+    border-radius: 12px; font-variant-numeric: tabular-nums; font-weight: 600; }
+  #meddelande { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); text-align: center;
+    background: var(--panel); border-radius: 12px; padding: 14px 18px; font-size: 17px; max-width: 80%;
+    pointer-events: none; }
+  #meddelande:empty { display: none; }
+  .ok { color: var(--green); } .bad { color: var(--red); } .warn { color: var(--yellow); }
 </style>
 </head>
 <body>
 <canvas id="bild"></canvas>
-<div id="msg">Ansluter till kameran…</div>
-<div id="diag"></div>
+<canvas id="yta"></canvas>
+<div id="status"></div>
+<div id="knappar">
+  <button id="aktivera">AKTIVERA</button>
+  <button id="ljus">Ljus</button>
+  <div class="rad"><button id="maxned">−</button><div id="maxtxt"></div><button id="maxupp">+</button></div>
+  <button id="vand">VÄND (håll in)</button>
+</div>
+<div id="meddelande">Ansluter…</div>
 <script>
 "use strict";
-// Steg 1 (2026-10-20): bara kamerabilden, för att se vad telefonen klarar.
-const canvas = document.getElementById("bild");
-const ctx = canvas.getContext("2d");
-const msg = document.getElementById("msg");
-const diag = document.getElementById("diag");
+// Robotstyrning i telefon/iPad (robotd webb.rs), 2026-10-20.
+// Vänster halva: fart (upp/ner), fjädrar tillbaka till 0 när tummen släpper.
+// Höger halva: styrning (åt sidorna). Samma kommandon som Robotstyrning.
 
-const st = { secure: window.isSecureContext, webcodecs: "VideoDecoder" in window,
-  codec: "", supported: null, frames: 0, bytes: 0, fps: 0, kbps: 0, delay: null,
-  decoded: 0, errors: 0, state: "ansluter", w: 0, h: 0, wake: "nej" };
+// ---------- Inställningar ----------
+const SEND_MS = 50;                 // styrkommandon 20 ggr/s (robotd stannar om de uteblir)
+const STICK_R = 70;                 // joystickens radie i px
+const DEADZONE = 0.08;
+const IDLE_MS = 5 * 60 * 1000;      // AKTIVERA släpps efter 5 min utan tryck, som Robotstyrning
+const MAX_DEFAULT = 0.30, MAX_MIN = 0.05, MAX_STEG = 0.05;
+// Färdlinjer: samma värden som client/src/guide.rs
+const WHEELBASE_M = 1.2, TRACK_M = 1.3, MAX_STEER_DEG = 30, STRAIGHT_PERCENT = 9, STRAIGHT_DEG = 2.7;
+const PATH_LEN_M = 4.0, HORIZON = 0.42, CAM_HEIGHT = 1.0, SPREAD_PX = 60;
 
-function show(t) { msg.textContent = t; msg.style.display = t ? "flex" : "none"; }
+const $ = (id) => document.getElementById(id);
+const bild = $("bild"), bctx = bild.getContext("2d");
+const yta = $("yta"), yctx = yta.getContext("2d");
+const meddelande = $("meddelande");
 
-function render() {
-  const yes = (v) => v ? '<span class="ok">ja</span>' : '<span class="bad">nej</span>';
-  const delay = st.delay == null ? "–" :
-    `<span class="${st.delay < 400 ? "ok" : st.delay < 1000 ? "warn" : "bad"}">${st.delay} ms</span>`;
-  diag.innerHTML =
-    `<b>Anslutning:</b> ${st.state}<br>` +
-    `<b>Säker sida (https):</b> ${yes(st.secure)} &nbsp; <b>WebCodecs:</b> ${yes(st.webcodecs)}<br>` +
-    `<b>Kodek:</b> ${st.codec || "–"} ${st.supported == null ? "" : yes(st.supported)}<br>` +
-    `<b>Bild:</b> ${st.w}×${st.h}, ${st.fps.toFixed(1)} bilder/s, ${Math.round(st.kbps)} kbit/s<br>` +
-    `<b>Fördröjning (ca):</b> ${delay} &nbsp; <b>Fel:</b> ${st.errors}<br>` +
-    `<b>Skärmen hålls tänd:</b> ${st.wake}${st.wake.includes("ja") ? "" : " – tryck på skärmen"}`;
+// ---------- Tillstånd ----------
+const s = {
+  driver: false, aktiv: false, ljus: false, pivot: false,
+  max: (() => { try { const v = parseFloat(localStorage.getItem("max")); return isFinite(v) ? clampMax(v) : MAX_DEFAULT; } catch (_) { return MAX_DEFAULT; } })(),
+  gas: 0, styr: 0, status: null, statusAt: 0, rtt: null, senastTryck: Date.now(), fps: 0,
+};
+function clampMax(v) { return Math.min(1, Math.max(MAX_MIN, Math.round(v * 100) / 100)); }
+function visa(t) { meddelande.textContent = t || ""; }
+
+// ---------- Joystickar (flera fingrar via Pointer Events) ----------
+const sticks = new Map(); // pointerId -> { sida, x0, y0, x, y }
+function storlek() {
+  const dpr = window.devicePixelRatio || 1;
+  yta.width = innerWidth * dpr; yta.height = innerHeight * dpr;
+  yctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
-setInterval(render, 500);
+addEventListener("resize", storlek); storlek();
 
-// Mät bilder/s och datamängd varje sekund.
-let lastTick = performance.now(), tickFrames = 0, tickBytes = 0;
+function axel(v) { // -1..1 med dödband
+  const a = Math.max(-1, Math.min(1, v));
+  return Math.abs(a) < DEADZONE ? 0 : (a - Math.sign(a) * DEADZONE) / (1 - DEADZONE);
+}
+function uppdateraSpakar() {
+  s.gas = 0; s.styr = 0;
+  for (const p of sticks.values()) {
+    if (p.sida === "v") s.gas = axel(-(p.y - p.y0) / STICK_R);
+    else s.styr = axel((p.x - p.x0) / STICK_R);
+  }
+}
+yta.addEventListener("pointerdown", (e) => {
+  const sida = e.clientX < innerWidth / 2 ? "v" : "h";
+  for (const p of sticks.values()) if (p.sida === sida) return; // en tumme per sida
+  yta.setPointerCapture(e.pointerId);
+  sticks.set(e.pointerId, { sida, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY });
+  s.senastTryck = Date.now(); keepAwake();
+});
+yta.addEventListener("pointermove", (e) => {
+  const p = sticks.get(e.pointerId); if (!p) return;
+  p.x = e.clientX; p.y = e.clientY; uppdateraSpakar();
+});
+function slapp(e) { if (sticks.delete(e.pointerId)) uppdateraSpakar(); }
+yta.addEventListener("pointerup", slapp);
+yta.addEventListener("pointercancel", slapp);
+yta.addEventListener("lostpointercapture", slapp);
+
+function ritaSpakar() {
+  yctx.clearRect(0, 0, innerWidth, innerHeight);
+  for (const p of sticks.values()) {
+    const dx = p.sida === "h" ? Math.max(-STICK_R, Math.min(STICK_R, p.x - p.x0)) : 0;
+    const dy = p.sida === "v" ? Math.max(-STICK_R, Math.min(STICK_R, p.y - p.y0)) : 0;
+    yctx.lineWidth = 3; yctx.strokeStyle = "rgba(255,255,255,.55)"; yctx.fillStyle = "rgba(0,0,0,.25)";
+    yctx.beginPath();
+    if (p.sida === "v") yctx.roundRect(p.x0 - 28, p.y0 - STICK_R - 28, 56, 2 * STICK_R + 56, 28);
+    else yctx.roundRect(p.x0 - STICK_R - 28, p.y0 - 28, 2 * STICK_R + 56, 56, 28);
+    yctx.fill(); yctx.stroke();
+    yctx.fillStyle = s.aktiv ? "rgba(255,90,70,.9)" : "rgba(200,200,200,.8)";
+    yctx.beginPath(); yctx.arc(p.x0 + dx, p.y0 + dy, 26, 0, 2 * Math.PI); yctx.fill();
+  }
+  requestAnimationFrame(ritaSpakar);
+}
+requestAnimationFrame(ritaSpakar);
+
+// ---------- Knappar ----------
+function ritaKnappar() {
+  const a = $("aktivera");
+  a.disabled = !s.driver;
+  a.classList.toggle("pa", s.aktiv);
+  a.textContent = !s.driver ? "Ej förare" : s.aktiv ? `AKTIV · max ${s.max.toFixed(2)} – tryck för att låsa` : "AKTIVERA";
+  $("ljus").classList.toggle("pa", s.ljus);
+  $("vand").classList.toggle("pa", s.pivot);
+  $("maxtxt").textContent = "Max " + s.max.toFixed(2);
+}
+function lasa(varfor) { if (s.aktiv) { s.aktiv = false; skickaStyr(); if (varfor) visa(varfor); } ritaKnappar(); }
+$("aktivera").addEventListener("click", () => {
+  s.senastTryck = Date.now(); keepAwake();
+  if (s.aktiv) { lasa(); return; }
+  if (estopText()) { visa("Nödstoppet är intryckt"); return; }
+  if (s.gas !== 0 || s.styr !== 0) { visa("Släpp spakarna innan du aktiverar"); return; }
+  s.aktiv = true; visa(""); ritaKnappar();
+});
+$("ljus").addEventListener("click", () => { s.ljus = !s.ljus; s.senastTryck = Date.now(); ritaKnappar(); });
+function nyMax(d) {
+  s.max = clampMax(s.max + d); s.senastTryck = Date.now();
+  try { localStorage.setItem("max", String(s.max)); } catch (_) {}
+  ritaKnappar();
+}
+$("maxned").addEventListener("click", () => nyMax(-MAX_STEG));
+$("maxupp").addEventListener("click", () => nyMax(+MAX_STEG));
+const vand = $("vand");
+vand.addEventListener("pointerdown", (e) => { vand.setPointerCapture(e.pointerId); s.pivot = true; s.senastTryck = Date.now(); ritaKnappar(); });
+for (const ev of ["pointerup", "pointercancel", "lostpointercapture"])
+  vand.addEventListener(ev, () => { s.pivot = false; ritaKnappar(); });
+ritaKnappar();
+
+// ---------- Styranslutningen ----------
+let ws = null;
+function skicka(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+function skickaStyr() {
+  const kor = s.driver && s.aktiv;
+  skicka({ Control: {
+    throttle: kor ? s.gas : 0, steering: kor ? s.styr : 0, accessory_a: 0, accessory_b: 0,
+    lights: s.ljus, activated: kor, timestamp_ms: Date.now(), max_output: s.max, pivot: kor && s.pivot,
+  } });
+}
+function anslut() {
+  ws = new WebSocket("wss://" + location.host + "/ws");
+  ws.onopen = () => skicka({ Connect: { as_viewer: false, view_code: null } });
+  ws.onmessage = (e) => {
+    let m; try { m = JSON.parse(e.data); } catch (_) { return; }
+    if (m === "ConnectedAsDriver") { s.driver = true; visa(""); }
+    else if (m === "ConnectedAsViewer") { s.driver = false; }
+    else if (m.ConnectDenied) { s.driver = false; visa("Någon annan kör roboten just nu: " + m.ConnectDenied.reason); }
+    else if (m.Status) { s.status = m.Status; s.statusAt = Date.now(); if (estopText()) lasa("Nödstopp: " + estopText()); }
+    else if (m.Pong) { s.rtt = Date.now() - m.Pong.sent_ms; }
+    ritaKnappar();
+  };
+  ws.onclose = () => {
+    s.driver = false; lasa(); ws = null;
+    visa("Anslutningen bröts – försöker igen…");
+    setTimeout(anslut, 1500);
+  };
+}
+anslut();
 setInterval(() => {
-  const now = performance.now(), dt = (now - lastTick) / 1000;
-  st.fps = tickFrames / dt; st.kbps = tickBytes * 8 / dt / 1000;
-  tickFrames = 0; tickBytes = 0; lastTick = now;
-}, 1000);
+  if (s.aktiv && Date.now() - s.senastTryck > IDLE_MS) lasa("Låst efter 5 minuter utan tryck");
+  skickaStyr();
+}, SEND_MS);
+setInterval(() => skicka({ Ping: { sent_ms: Date.now() } }), 1000);
 
-// Skärmen tänd (bara på https, iOS 16.4+).
-async function keepAwake() {
-  try {
-    if (!("wakeLock" in navigator)) { st.wake = "stöds inte"; return; }
-    const lock = await navigator.wakeLock.request("screen");
-    st.wake = '<span class="ok">ja</span>';
-    lock.addEventListener("release", () => { st.wake = "nej"; });
-  } catch (e) { st.wake = "nej (" + e.name + ")"; }
+// Skärmen släcks, annan app, samtal: lås och stanna direkt.
+function bort() { sticks.clear(); uppdateraSpakar(); lasa("Låst: sidan var inte synlig"); }
+document.addEventListener("visibilitychange", () => { if (document.hidden) bort(); else keepAwake(); });
+addEventListener("pagehide", bort);
+addEventListener("blur", () => { sticks.clear(); uppdateraSpakar(); });
+
+// ---------- Statusraden ----------
+// Som hud::estop_text i Robotstyrning.
+function estopText() {
+  const e = s.status && s.status.estop;
+  if (!e || e === "ok") return null;
+  if (e === "intryckt") return "intryckt";
+  if (e === "sparrad") return "utdraget – släpper spärren…";
+  return "knappen går inte att läsa (kabel?)";
 }
-document.addEventListener("visibilitychange", () => { if (!document.hidden) keepAwake(); });
-// Safari ger bara tillstånd efter ett tryck på skärmen (NotAllowedError annars).
-document.addEventListener("touchend", () => { if (!st.wake.includes("ja")) keepAwake(); });
-document.addEventListener("click", () => { if (!st.wake.includes("ja")) keepAwake(); });
-keepAwake();
+function f(v, d, enh) { return v == null || !isFinite(v) ? "–" : v.toFixed(d) + enh; }
+setInterval(() => {
+  const st = s.status, farsk = st && Date.now() - s.statusAt < 3000;
+  const rttKlass = s.rtt == null ? "" : s.rtt < 300 ? "ok" : s.rtt < 800 ? "warn" : "bad";
+  let h = `<span><b>${!ws || ws.readyState !== 1 ? '<span class="bad">Frånkopplad</span>' : s.driver ? "Förare" : "Tittar"}</b></span>`;
+  h += `<span>Svar ${s.rtt == null ? "–" : `<span class="${rttKlass}">${s.rtt} ms</span>`}</span>`;
+  if (farsk) {
+    h += `<span>${f(st.speed_kmh, 1, " km/h")}</span>`;
+    h += `<span>Batt ${f(st.battery_percent, 0, " %")} ${f(st.battery_voltage, 1, " V")}</span>`;
+    h += `<span>Styr ${st.steering_deg != null ? f(st.steering_deg, 0, "°") : f(st.steering_percent, 0, " %")}</span>`;
+    if (estopText()) h += `<span class="bad"><b>NÖDSTOPP: ${estopText()}</b></span>`;
+    if (st.fault_text) h += `<span class="warn">${st.fault_text}</span>`;
+  } else if (ws && ws.readyState === 1) h += `<span class="warn">Ingen status från roboten</span>`;
+  h += `<span>${s.fps.toFixed(0)} bilder/s</span>`;
+  $("status").innerHTML = h;
+}, 250);
 
-// H.264 Annex B: hitta NAL-enheterna i en bild.
-function* nalUnits(b) {
+// Skärmen tänd (Safari kräver ett tryck först).
+let wakeLock = null;
+async function keepAwake() {
+  try { if (!wakeLock && "wakeLock" in navigator) { wakeLock = await navigator.wakeLock.request("screen");
+    wakeLock.addEventListener("release", () => { wakeLock = null; }); } } catch (_) {}
+}
+
+// ---------- Färdlinjer och vändsymbol (som client/src/guide.rs) ----------
+function styrGrader(st) {
+  if (!st) return null;
+  let deg = st.steering_deg != null ? st.steering_deg : st.steering_percent != null ? st.steering_percent / 100 * MAX_STEER_DEG : null;
+  if (deg == null) return null;
+  const pct = st.steering_percent != null ? st.steering_percent : deg / MAX_STEER_DEG * 100;
+  return Math.abs(pct) < STRAIGHT_PERCENT || Math.abs(deg) < STRAIGHT_DEG ? 0 : deg;
+}
+function banPunkt(deg, lat, sm) {
+  const k = Math.tan(deg * Math.PI / 180) / WHEELBASE_M;
+  if (Math.abs(k) < 1e-4) return [lat, sm];
+  const r = 1 / k, rr = r - lat, a = sm * k;
+  return [r - rr * Math.cos(a), rr * Math.sin(a)];
+}
+function proj(W, H, x, z) {
+  z += 1.2; if (z < 0.3) return null;
+  const fl = W * 0.55, y = H * HORIZON + fl * CAM_HEIGHT / z;
+  return y <= H + 40 ? [W / 2 + fl * x / z, y] : null;
+}
+function ritaLinjer(c, W, H, deg) {
+  const k = Math.abs(Math.tan(deg * Math.PI / 180)) / WHEELBASE_M;
+  const len = k > 1e-4 ? Math.min(PATH_LEN_M, (Math.PI / 3) / k) : PATH_LEN_M;
+  for (const [lat, w, col] of [[-TRACK_M / 2, 7, "rgb(255,60,50)"], [TRACK_M / 2, 7, "rgb(255,60,50)"], [0, 3, "rgba(160,30,25,.63)"]]) {
+    c.lineWidth = w; c.strokeStyle = col; c.lineCap = "round"; c.beginPath(); let forst = true;
+    for (let i = 0; i <= 40; i++) {
+      const [x, z] = banPunkt(deg, lat, len * i / 40), p = proj(W, H, x, z);
+      if (!p) continue;
+      const dx = lat === 0 ? 0 : Math.sign(lat) * SPREAD_PX;
+      if (forst) { c.moveTo(p[0] + dx, p[1]); forst = false; } else c.lineTo(p[0] + dx, p[1]);
+    }
+    c.stroke();
+  }
+  c.lineWidth = 3; c.strokeStyle = "rgba(160,30,25,.63)";
+  for (const m of [1, 2, 3, 4]) {
+    if (m > len) continue;
+    const a = banPunkt(deg, -TRACK_M / 2, m), b = banPunkt(deg, TRACK_M / 2, m);
+    const pa = proj(W, H, a[0], a[1]), pb = proj(W, H, b[0], b[1]);
+    if (pa && pb) { c.beginPath(); c.moveTo(pa[0] - SPREAD_PX, pa[1]); c.lineTo(pb[0] + SPREAD_PX, pb[1]); c.stroke(); }
+  }
+}
+function ritaVand(c, W, H, dir) {
+  const cx = W / 2, cy = H / 2, r = Math.min(W, H) * 0.14;
+  const at = (d) => { const a = d * Math.PI / 180; return [cx + Math.sin(a) * r, cy - Math.cos(a) * r]; };
+  c.lineWidth = 9; c.strokeStyle = "rgb(255,60,50)"; c.beginPath();
+  for (let i = 0; i <= 60; i++) { const p = at(30 + 300 * i / 60); i ? c.lineTo(p[0], p[1]) : c.moveTo(p[0], p[1]); }
+  c.stroke();
+  if (dir !== 0) {
+    const end = dir > 0 ? 330 : 30, a = end * Math.PI / 180, tip = at(end);
+    const t = [Math.cos(a) * Math.sign(dir), Math.sin(a) * Math.sign(dir)], n = [Math.sin(a), -Math.cos(a)];
+    const base = [tip[0] - t[0] * 26, tip[1] - t[1] * 26];
+    c.fillStyle = "rgb(255,60,50)"; c.beginPath();
+    c.moveTo(tip[0] + t[0] * 8, tip[1] + t[1] * 8);
+    c.lineTo(base[0] + n[0] * 20, base[1] + n[1] * 20); c.lineTo(base[0] - n[0] * 20, base[1] - n[1] * 20);
+    c.fill();
+  }
+  c.fillStyle = "rgb(255,60,50)"; c.font = `600 ${Math.round(r * 0.28)}px -apple-system, sans-serif`;
+  c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("VÄNDNING", cx, cy);
+}
+
+// ---------- Video (WebCodecs) ----------
+let dekoder = null, behoverNyckel = true, bilder = 0;
+setInterval(() => { s.fps = bilder; bilder = 0; }, 1000);
+function* nalEnheter(b) {
   let i = 0, start = -1;
   while (i + 3 <= b.length) {
     if (b[i] === 0 && b[i + 1] === 0 && (b[i + 2] === 1 || (b[i + 2] === 0 && b[i + 3] === 1))) {
-      const sc = b[i + 2] === 1 ? 3 : 4;
-      if (start >= 0) yield b.subarray(start, i);
-      i += sc; start = i;
+      const sc = b[i + 2] === 1 ? 3 : 4; if (start >= 0) yield b.subarray(start, i); i += sc; start = i;
     } else i++;
   }
   if (start >= 0) yield b.subarray(start);
 }
-
-// Kodeksträngen (avc1.PPCCLL) ur SPS i första nyckelbilden.
-function codecFromSps(au) {
-  for (const n of nalUnits(au)) {
-    if ((n[0] & 0x1f) === 7 && n.length > 3) {
-      const h = (x) => x.toString(16).padStart(2, "0");
-      return "avc1." + h(n[1]) + h(n[2]) + h(n[3]);
-    }
+function kodek(au) {
+  for (const n of nalEnheter(au)) if ((n[0] & 0x1f) === 7 && n.length > 3) {
+    const h = (x) => x.toString(16).padStart(2, "0"); return "avc1." + h(n[1]) + h(n[2]) + h(n[3]);
   }
   return null;
 }
-
-let decoder = null;
-
-async function setupDecoder(codec) {
-  st.codec = codec;
+async function nyDekoder(codec) {
   const config = { codec, optimizeForLatency: true };
-  try {
-    const s = await VideoDecoder.isConfigSupported(config);
-    st.supported = s.supported;
-    if (!s.supported) { show("Telefonen kan inte avkoda videon (" + codec + ")."); return false; }
-  } catch (e) { st.supported = false; show("Avkodaren: " + e.message); return false; }
-  decoder = new VideoDecoder({
+  try { if (!(await VideoDecoder.isConfigSupported(config)).supported) { visa("Telefonen kan inte avkoda videon"); return false; } }
+  catch (e) { visa("Avkodaren: " + e.message); return false; }
+  dekoder = new VideoDecoder({
     output: (frame) => {
-      if (canvas.width !== frame.displayWidth || canvas.height !== frame.displayHeight) {
-        canvas.width = frame.displayWidth; canvas.height = frame.displayHeight;
-        st.w = frame.displayWidth; st.h = frame.displayHeight;
+      if (bild.width !== frame.displayWidth || bild.height !== frame.displayHeight) {
+        bild.width = frame.displayWidth; bild.height = frame.displayHeight;
       }
-      ctx.drawImage(frame, 0, 0);
-      st.delay = Math.max(0, Date.now() - Math.round(frame.timestamp / 1000));
-      frame.close();
-      st.decoded++;
-      show("");
+      bctx.drawImage(frame, 0, 0); frame.close(); bilder++;
+      const W = bild.width, H = bild.height;
+      if (s.pivot && s.aktiv) ritaVand(bctx, W, H, s.styr);
+      else { const d = styrGrader(s.status); if (d != null) ritaLinjer(bctx, W, H, d); }
     },
-    error: (e) => { st.errors++; st.state = "avkodningsfel: " + e.message; decoder = null; },
+    error: () => { dekoder = null; },
   });
-  decoder.configure(config);
+  dekoder.configure(config);
   return true;
 }
-
-let needKey = true;
-
-async function onFrame(buf) {
-  const b = new Uint8Array(buf);
-  const key = b[0] === 1;
+async function vidBild(buf) {
+  const b = new Uint8Array(buf), nyckel = b[0] === 1, au = b.subarray(9);
   const ms = Number(new DataView(buf, 1, 8).getBigUint64(0));
-  const au = b.subarray(9);
-  tickFrames++; tickBytes += b.length;
-  if (!st.webcodecs) return;
-  if (!decoder) {
-    if (!key) return;
-    const codec = codecFromSps(au);
-    if (!codec || !(await setupDecoder(codec))) return;
-    needKey = true;
-  }
-  if (needKey && !key) return;
-  needKey = false;
-  // Hinner telefonen inte avkoda: släpp bilder fram till nästa nyckelbild.
-  if (decoder.decodeQueueSize > 3) { needKey = true; return; }
-  try {
-    decoder.decode(new EncodedVideoChunk({ type: key ? "key" : "delta", timestamp: ms * 1000, data: au }));
-  } catch (e) { st.errors++; needKey = true; }
+  if (!("VideoDecoder" in window)) return;
+  if (!dekoder) { if (!nyckel) return; const c = kodek(au); if (!c || !(await nyDekoder(c))) return; behoverNyckel = true; }
+  if (behoverNyckel && !nyckel) return;
+  behoverNyckel = false;
+  if (dekoder.decodeQueueSize > 3) { behoverNyckel = true; return; }
+  try { dekoder.decode(new EncodedVideoChunk({ type: nyckel ? "key" : "delta", timestamp: ms * 1000, data: au })); }
+  catch (_) { behoverNyckel = true; }
 }
-
-function connect() {
-  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/video");
-  ws.binaryType = "arraybuffer";
-  ws.onopen = () => { st.state = '<span class="ok">ansluten</span>'; if (!st.webcodecs)
-    show(st.secure ? "Webbläsaren saknar WebCodecs (kräver iOS 16.4 eller senare)."
-                   : "Sidan måste öppnas med https:// för att visa video."); else show("Väntar på kamerabild…"); };
-  ws.onmessage = (e) => { if (typeof e.data === "string") show(e.data); else onFrame(e.data); };
-  ws.onclose = () => {
-    st.state = '<span class="bad">frånkopplad</span>, försöker igen';
-    if (decoder) { try { decoder.close(); } catch (_) {} decoder = null; }
-    setTimeout(connect, 2000);
-  };
+function anslutVideo() {
+  const v = new WebSocket("wss://" + location.host + "/video");
+  v.binaryType = "arraybuffer";
+  v.onmessage = (e) => { if (typeof e.data !== "string") vidBild(e.data); };
+  v.onclose = () => { if (dekoder) { try { dekoder.close(); } catch (_) {} dekoder = null; } setTimeout(anslutVideo, 2000); };
 }
-connect();
-render();
+if (!("VideoDecoder" in window)) visa("Den här webbläsaren kan inte visa video (kräver iOS 16.4 eller senare). Styrningen fungerar ändå.");
+anslutVideo();
 </script>
 </body>
 </html>
