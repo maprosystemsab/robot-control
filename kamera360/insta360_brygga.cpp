@@ -23,6 +23,7 @@
 #include <atomic>
 #include <chrono>
 #include <csignal>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -31,6 +32,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <sys/stat.h>
 #include <unistd.h>
 #include <vector>
 
@@ -167,6 +169,20 @@ int main(int argc, char** argv) {
     std::signal(SIGPIPE, SIG_IGN); // skrivfel hanteras som "robotd borta"
     std::signal(SIGTERM, [](int) { g_sluta = true; });
     std::signal(SIGINT, [](int) { g_sluta = true; });
+
+    if (!kalibrering_fil.empty() && kalibrering_fil[0] != '/') {
+        char cwd[4096];
+        if (::getcwd(cwd, sizeof cwd)) kalibrering_fil = std::string(cwd) + "/" + kalibrering_fil;
+    }
+    // SDK:t sparar kamerans inställningstabell i ./jsons; robotd startar oss
+    // i en katalog vi kanske inte får skriva i (t.ex. /).
+    const char* hem = std::getenv("HOME");
+    std::string cache = std::string(hem && *hem ? hem : "/tmp") + "/.cache/insta360-brygga";
+    ::mkdir((cache.substr(0, cache.rfind('/'))).c_str(), 0755);
+    ::mkdir(cache.c_str(), 0755);
+    if (::chdir(cache.c_str()) != 0 && ::chdir("/tmp") != 0) {
+        std::cerr << "insta360-brygga: hittar ingen skrivbar katalog\n";
+    }
 
     ins_camera::SetLogLevel(ins_camera::LogLevel::ERR);
     ins_camera::DeviceDiscovery discovery;
