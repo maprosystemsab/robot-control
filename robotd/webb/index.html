@@ -32,6 +32,7 @@
   button:active { filter: brightness(1.3); }
   #aktivera { font-size: 17px; background: #2b6b4f; min-width: 120px; }
   #kugg { font-size: 20px; }
+  #knappar #vr { grid-column: 1 / span 2; background: #5b3fa8; display: none; }
   #aktivera.pa { background: var(--red); }
   #aktivera:disabled { background: #444; color: #999; }
   #ljus.pa { background: #b08a1e; }
@@ -56,6 +57,7 @@
   <button id="aktivera">AKTIVERA</button>
   <button id="kugg" aria-label="Inställningar">⚙</button>
   <button id="vand">VÄND (håll in)</button>
+  <button id="vr">Kör i Quest</button>
 </div>
 <div id="installningar">
   <button id="ljus">Ljus</button>
@@ -182,7 +184,9 @@ ritaKnappar();
 // ---------- Styranslutningen ----------
 let ws = null;
 function skicka(obj) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(obj)); }
+let senastSkickat = 0;
 function skickaStyr() {
+  senastSkickat = Date.now();
   const kor = s.driver && s.aktiv;
   skicka({ Control: {
     throttle: kor ? s.gas : 0, steering: kor ? s.styr : 0, accessory_a: 0, accessory_b: 0,
@@ -216,9 +220,9 @@ setInterval(() => skicka({ Ping: { sent_ms: Date.now() } }), 1000);
 
 // Skärmen släcks, annan app, samtal: lås och stanna direkt.
 function bort() { sticks.clear(); uppdateraSpakar(); lasa("Låst: sidan var inte synlig"); }
-document.addEventListener("visibilitychange", () => { if (document.hidden) bort(); else keepAwake(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden && !xr.session) bort(); else keepAwake(); });
 addEventListener("pagehide", bort);
-addEventListener("blur", () => { sticks.clear(); uppdateraSpakar(); });
+addEventListener("blur", () => { if (!xr.session) { sticks.clear(); uppdateraSpakar(); } });
 
 // ---------- Statusraden ----------
 // Som hud::estop_text i Robotstyrning.
@@ -343,6 +347,8 @@ async function nyDekoder(codec) {
       const W = bild.width, H = bild.height;
       if (s.pivot && s.aktiv) ritaVand(bctx, W, H, s.styr);
       else { const d = styrGrader(s.status); if (d != null) ritaLinjer(bctx, W, H, d); }
+      if (xr.session) ritaXrStatus(bctx, W, H);
+      xr.nyBild = true;
     },
     error: () => { dekoder = null; },
   });
@@ -367,6 +373,137 @@ function anslutVideo() {
   v.onclose = () => { if (dekoder) { try { dekoder.close(); } catch (_) {} dekoder = null; } setTimeout(anslutVideo, 2000); };
 }
 if (!("VideoDecoder" in window)) visa("Den här webbläsaren kan inte visa video (kräver iOS 16.4 eller senare). Styrningen fungerar ändå.");
+
+// ---------- Meta Quest: VR-läge med handkontrollerna (WebXR) ----------
+// Kamerabilden som en svävande skärm (genomsikt om det finns). Vänster spak fart,
+// höger spak styr. A = AKTIVERA, B = lås, höger grepp = VÄND, X = ljus.
+const xr = { session: null, nyBild: false, knappFore: {} };
+const XR_AVSTAND = 2.2, XR_BREDD = 2.4;
+
+function ritaXrStatus(c, W, H) {
+  const st = s.status, rad1 = [];
+  rad1.push(!s.driver ? "EJ FÖRARE" : s.aktiv ? `AKTIV  max ${s.max.toFixed(2)}` : "LÅST – tryck A för att aktivera");
+  if (st) {
+    if (st.speed_kmh != null) rad1.push(st.speed_kmh.toFixed(1) + " km/h");
+    if (st.battery_percent != null) rad1.push("Batt " + st.battery_percent.toFixed(0) + " %");
+  }
+  if (s.rtt != null) rad1.push("Svar " + s.rtt + " ms");
+  if (estopText()) rad1.push("NÖDSTOPP: " + estopText());
+  const h = Math.round(H * 0.07);
+  c.fillStyle = s.aktiv ? "rgba(170,30,20,.75)" : "rgba(0,0,0,.6)";
+  c.fillRect(0, 0, W, h);
+  c.fillStyle = "#fff"; c.font = `600 ${Math.round(h * 0.55)}px sans-serif`;
+  c.textAlign = "left"; c.textBaseline = "middle";
+  c.fillText(rad1.join("    "), h * 0.4, h / 2);
+  if (!s.aktiv) {
+    c.fillStyle = "rgba(0,0,0,.6)"; c.fillRect(0, H - h, W, h);
+    c.fillStyle = "#fff"; c.font = `${Math.round(h * 0.45)}px sans-serif`;
+    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   vänster spak = fart   höger spak = styr", h * 0.4, H - h / 2);
+  }
+}
+
+function xrKnapp(id, nedtryckt) { // sant precis när knappen trycks ner
+  const fore = xr.knappFore[id]; xr.knappFore[id] = nedtryckt; return nedtryckt && !fore;
+}
+
+function xrLasStyr(frame) {
+  let gas = 0, styr = 0, pivot = false;
+  for (const src of frame.session.inputSources) {
+    const gp = src.gamepad; if (!gp) continue;
+    const ax = (i) => gp.axes.length > i ? gp.axes[i] : 0;
+    const kn = (i) => gp.buttons.length > i && gp.buttons[i].pressed;
+    if (src.handedness === "left") {
+      gas = axel(-ax(3));
+      if (xrKnapp("X", kn(4))) { s.ljus = !s.ljus; s.senastTryck = Date.now(); }
+    } else if (src.handedness === "right") {
+      styr = axel(ax(2));
+      pivot = kn(1);
+      if (xrKnapp("A", kn(4))) {
+        s.senastTryck = Date.now();
+        if (!s.aktiv && s.driver && !estopText() && gas === 0 && styr === 0) s.aktiv = true;
+      }
+      if (xrKnapp("B", kn(5))) lasa();
+    }
+  }
+  if (gas !== 0 || styr !== 0) s.senastTryck = Date.now();
+  s.gas = gas; s.styr = styr; s.pivot = pivot;
+  ritaKnappar();
+}
+
+async function startaXr() {
+  const lage = (await navigator.xr.isSessionSupported("immersive-ar")) ? "immersive-ar" : "immersive-vr";
+  const session = await navigator.xr.requestSession(lage, { requiredFeatures: ["local"] });
+  xr.session = session; xr.knappFore = {};
+  const glc = document.createElement("canvas");
+  const gl = glc.getContext("webgl2", { xrCompatible: true, alpha: true });
+  await session.updateRenderState({ baseLayer: new XRWebGLLayer(session, gl) });
+  const ref = await session.requestReferenceSpace("local");
+
+  const sh = (typ, src) => { const o = gl.createShader(typ); gl.shaderSource(o, src); gl.compileShader(o); return o; };
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, `#version 300 es
+    in vec2 p; uniform mat4 pv; uniform vec2 halv; uniform float z; out vec2 uv;
+    void main() { uv = vec2(p.x * .5 + .5, .5 - p.y * .5); gl_Position = pv * vec4(p * halv, z, 1.0); }`));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `#version 300 es
+    precision mediump float; in vec2 uv; uniform sampler2D t; out vec4 c;
+    void main() { c = texture(t, uv); }`));
+  gl.linkProgram(prog);
+  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+  xr.nyBild = true;
+
+  // Tar man av glasögonen eller öppnar Meta-menyn: lås direkt.
+  session.addEventListener("visibilitychange", () => {
+    if (session.visibilityState !== "visible") { s.gas = 0; s.styr = 0; s.pivot = false; lasa("Låst: VR-läget var inte i fokus"); }
+  });
+  session.addEventListener("end", () => {
+    xr.session = null; s.gas = 0; s.styr = 0; s.pivot = false; lasa("Låst: VR-läget avslutat");
+  });
+
+  const mul = (a, b) => { const o = new Float32Array(16);
+    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let v = 0; for (let k = 0; k < 4; k++) v += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = v; }
+    return o; };
+
+  function ruta(t, frame) {
+    session.requestAnimationFrame(ruta);
+    if (session.visibilityState === "visible") xrLasStyr(frame);
+    if (Date.now() - senastSkickat >= SEND_MS) skickaStyr();
+    const pose = frame.getViewerPose(ref); if (!pose) return;
+    const layer = session.renderState.baseLayer;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
+    gl.clearColor(0, 0, 0, lage === "immersive-ar" ? 0 : 1); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.useProgram(prog); gl.bindTexture(gl.TEXTURE_2D, tex);
+    if (xr.nyBild && bild.width > 1) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bild); xr.nyBild = false; }
+    const bredd = XR_BREDD, hojd = bild.width > 1 ? XR_BREDD * bild.height / bild.width : XR_BREDD * 9 / 16;
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    const loc = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
+    gl.uniform2f(gl.getUniformLocation(prog, "halv"), bredd / 2, hojd / 2);
+    gl.uniform1f(gl.getUniformLocation(prog, "z"), -XR_AVSTAND);
+    for (const view of pose.views) {
+      const vp = layer.getViewport(view);
+      gl.viewport(vp.x, vp.y, vp.width, vp.height);
+      gl.uniformMatrix4fv(gl.getUniformLocation(prog, "pv"), false, mul(view.projectionMatrix, view.transform.inverse.matrix));
+      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+    }
+  }
+  session.requestAnimationFrame(ruta);
+}
+
+if (navigator.xr) {
+  Promise.all([navigator.xr.isSessionSupported("immersive-ar").catch(() => false),
+               navigator.xr.isSessionSupported("immersive-vr").catch(() => false)])
+    .then(([ar, vr]) => { if (ar || vr) $("vr").style.display = "block"; });
+}
+$("vr").addEventListener("click", () => {
+  lasa(); startaXr().catch((e) => visa("Kunde inte starta VR-läget: " + e.message));
+});
+
 anslutVideo();
 </script>
 </body>
