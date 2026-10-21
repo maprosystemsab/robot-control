@@ -5,6 +5,7 @@
 //!   GET /        körsidan (webb/index.html, inbakad i programmet)
 //!   GET /video   WebSocket med kamerabilden, en binär bild per meddelande:
 //!                [1 byte: 1 = nyckelbild][8 byte: tagen, ms sedan 1970, BE][H.264 Annex B]
+//!                Med 360-kamera kommer först textmeddelandet {"projektion":"dubbel_fisheye"}.
 //!   GET /ws      styranslutningen, samma protokoll och regler som robotd:s
 //!                `/ws` (server.rs): Connect först, en förare i taget.
 //!
@@ -149,6 +150,10 @@ async fn serve_video(mut socket: WebSocket) {
         let _ = socket.send(Message::Text("video avstängd i robotd (video.enabled=false)".into())).await;
         return;
     };
+    // 360-kamera: sidan syr ihop de två fisheye-bilderna till en sfär.
+    if hub.kamera360 && socket.send(Message::Text(r#"{"projektion":"dubbel_fisheye"}"#.into())).await.is_err() {
+        return;
+    }
     let (mut rx, guard) = hub.subscribe();
     tracing::info!("Webb: tittare ansluten");
     let res = send_frames(&mut socket, &mut rx).await;
