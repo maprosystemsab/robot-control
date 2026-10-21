@@ -545,7 +545,8 @@ function ritaXrStatus(c, W, H) {
   if (!s.aktiv) {
     c.fillStyle = "rgba(0,0,0,.6)"; c.fillRect(0, H - h, W, h);
     c.fillStyle = "#fff"; c.font = `${Math.round(h * 0.45)}px sans-serif`;
-    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   tryck vänster spak = hämta skärmen   vänster grepp = dra skärmen", h * 0.4, H - h / 2);
+    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   tryck vänster spak = hämta skärmen   vänster grepp = dra skärmen"
+      + (v360.pa ? "   Y = fram dit du tittar" : ""), h * 0.4, H - h / 2);
   }
 }
 
@@ -591,10 +592,10 @@ function xrSkarm(frame, ref) {
     if (src.handedness !== "left" || !src.gamepad) continue;
     const kn = (i) => src.gamepad.buttons.length > i && src.gamepad.buttons[i].pressed;
     if (xrKnapp("Lspak", kn(3))) { const v = frame.getViewerPose(ref); if (v) xr.modell = skarmFramfor(v); }
-    if (v360.pa) { // 360: vänster spak i sidled vrider sfären (så fram hamnar rätt)
-      const vrid = axel(src.gamepad.axes.length > 2 ? src.gamepad.axes[2] : 0);
-      if (vrid !== 0) { v360.fram -= vrid * 0.03; xr.framAndrad = true; }
-      else if (xr.framAndrad) { xr.framAndrad = false; sparaFram(); }
+    // 360: Y = robotens fram läggs dit du tittar. (Inte på en spak: vänster spak är gasen.)
+    if (v360.pa && xrKnapp("Y", kn(5))) {
+      const v = frame.getViewerPose(ref);
+      if (v) { const m = v.transform.matrix; v360.fram = -Math.atan2(m[8], m[10]); sparaFram(); }
     }
     const hand = src.gripSpace && frame.getPose(src.gripSpace, ref);
     if (kn(1) && hand) {
