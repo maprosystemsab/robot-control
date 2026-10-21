@@ -276,11 +276,11 @@ function proj(W, H, x, z) {
   const fl = W * 0.55, y = H * HORIZON + fl * CAM_HEIGHT / z;
   return y <= H + 40 ? [W / 2 + fl * x / z, y] : null;
 }
-function ritaLinjer(c, W, H, deg) {
+function ritaLinjer(c, W, H, deg, tjock = 1) {
   const k = Math.abs(Math.tan(deg * Math.PI / 180)) / WHEELBASE_M;
   const len = k > 1e-4 ? Math.min(PATH_LEN_M, (Math.PI / 3) / k) : PATH_LEN_M;
   for (const [lat, w, col] of [[-TRACK_M / 2, 7, "rgb(255,60,50)"], [TRACK_M / 2, 7, "rgb(255,60,50)"], [0, 3, "rgba(160,30,25,.63)"]]) {
-    c.lineWidth = w; c.strokeStyle = col; c.lineCap = "round"; c.beginPath(); let forst = true;
+    c.lineWidth = w * tjock; c.strokeStyle = col; c.lineCap = "round"; c.beginPath(); let forst = true;
     for (let i = 0; i <= 40; i++) {
       const [x, z] = banPunkt(deg, lat, len * i / 40), p = proj(W, H, x, z);
       if (!p) continue;
@@ -289,7 +289,7 @@ function ritaLinjer(c, W, H, deg) {
     }
     c.stroke();
   }
-  c.lineWidth = 3; c.strokeStyle = "rgba(160,30,25,.63)";
+  c.lineWidth = 3 * tjock; c.strokeStyle = "rgba(160,30,25,.63)";
   for (const m of [1, 2, 3, 4]) {
     if (m > len) continue;
     const a = banPunkt(deg, -TRACK_M / 2, m), b = banPunkt(deg, TRACK_M / 2, m);
@@ -346,7 +346,13 @@ async function nyDekoder(codec) {
       bctx.drawImage(frame, 0, 0); frame.close(); bilder++;
       const W = bild.width, H = bild.height;
       if (s.pivot && s.aktiv) ritaVand(bctx, W, H, s.styr);
-      else { const d = styrGrader(s.status); if (d != null) ritaLinjer(bctx, W, H, d); }
+      else {
+        // I VR ritas linjerna alltid (raka om styrvinkeln saknas) och tjockare: på den
+        // svävande skärmen blev 7 px knappt synliga.
+        let d = styrGrader(s.status);
+        if (d == null && xr.session) d = 0;
+        if (d != null) ritaLinjer(bctx, W, H, d, xr.session ? 2 : 1);
+      }
       if (xr.session) ritaXrStatus(bctx, W, H);
       xr.nyBild = true;
     },
