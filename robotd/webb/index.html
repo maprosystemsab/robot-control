@@ -377,7 +377,8 @@ if (!("VideoDecoder" in window)) visa("Den här webbläsaren kan inte visa video
 // ---------- Meta Quest: VR-läge med handkontrollerna (WebXR) ----------
 // Kamerabilden som en svävande skärm (genomsikt om det finns). Vänster spak fart,
 // höger spak styr. A = AKTIVERA, B = lås, höger grepp = VÄND, X = ljus.
-const xr = { session: null, nyBild: false, knappFore: {} };
+// Skärmen: tryck ner vänster spak = flytta den dit du tittar; håll vänster grepp = dra den.
+const xr = { session: null, nyBild: false, knappFore: {}, modell: null, greppOffset: null };
 const XR_AVSTAND = 2.2, XR_BREDD = 2.4;
 
 function ritaXrStatus(c, W, H) {
@@ -398,12 +399,37 @@ function ritaXrStatus(c, W, H) {
   if (!s.aktiv) {
     c.fillStyle = "rgba(0,0,0,.6)"; c.fillRect(0, H - h, W, h);
     c.fillStyle = "#fff"; c.font = `${Math.round(h * 0.45)}px sans-serif`;
-    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   vänster spak = fart   höger spak = styr", h * 0.4, H - h / 2);
+    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   tryck vänster spak = hämta skärmen   vänster grepp = dra skärmen", h * 0.4, H - h / 2);
   }
 }
 
 function xrKnapp(id, nedtryckt) { // sant precis när knappen trycks ner
   const fore = xr.knappFore[id]; xr.knappFore[id] = nedtryckt; return nedtryckt && !fore;
+}
+
+const mul4 = (a, b) => { const o = new Float32Array(16);
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let v = 0; for (let k = 0; k < 4; k++) v += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = v; }
+  return o; };
+// Skärmen XR_AVSTAND framför huvudet, rak (bara vridning runt lodlinjen), vänd mot dig.
+function skarmFramfor(pose) {
+  const m = pose.transform.matrix, pos = pose.transform.position;
+  let fx = -m[8], fz = -m[10]; const l = Math.hypot(fx, fz) || 1; fx /= l; fz /= l;
+  const yaw = Math.atan2(-fx, -fz), c = Math.cos(yaw), sn = Math.sin(yaw);
+  return new Float32Array([c, 0, -sn, 0, 0, 1, 0, 0, sn, 0, c, 0,
+    pos.x + fx * XR_AVSTAND, pos.y, pos.z + fz * XR_AVSTAND, 1]);
+}
+function xrSkarm(frame, ref) {
+  for (const src of frame.session.inputSources) {
+    if (src.handedness !== "left" || !src.gamepad) continue;
+    const kn = (i) => src.gamepad.buttons.length > i && src.gamepad.buttons[i].pressed;
+    if (xrKnapp("Lspak", kn(3))) { const v = frame.getViewerPose(ref); if (v) xr.modell = skarmFramfor(v); }
+    const hand = src.gripSpace && frame.getPose(src.gripSpace, ref);
+    if (kn(1) && hand) {
+      // Håll grepp: skärmen följer handen med samma avstånd och vinkel som när greppet togs.
+      if (!xr.greppOffset) xr.greppOffset = mul4(hand.transform.inverse.matrix, xr.modell);
+      xr.modell = mul4(hand.transform.matrix, xr.greppOffset);
+    } else xr.greppOffset = null;
+  }
 }
 
 function xrLasStyr(frame) {
@@ -442,8 +468,8 @@ async function startaXr() {
   const sh = (typ, src) => { const o = gl.createShader(typ); gl.shaderSource(o, src); gl.compileShader(o); return o; };
   const prog = gl.createProgram();
   gl.attachShader(prog, sh(gl.VERTEX_SHADER, `#version 300 es
-    in vec2 p; uniform mat4 pv; uniform vec2 halv; uniform float z; out vec2 uv;
-    void main() { uv = vec2(p.x * .5 + .5, .5 - p.y * .5); gl_Position = pv * vec4(p * halv, z, 1.0); }`));
+    in vec2 p; uniform mat4 pv; uniform mat4 modell; uniform vec2 halv; out vec2 uv;
+    void main() { uv = vec2(p.x * .5 + .5, .5 - p.y * .5); gl_Position = pv * modell * vec4(p * halv, 0.0, 1.0); }`));
   gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `#version 300 es
     precision mediump float; in vec2 uv; uniform sampler2D t; out vec4 c;
     void main() { c = texture(t, uv); }`));
@@ -456,6 +482,8 @@ async function startaXr() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
   xr.nyBild = true;
+  xr.modell = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -XR_AVSTAND, 1]);
+  xr.greppOffset = null;
 
   // Tar man av glasögonen eller öppnar Meta-menyn: lås direkt.
   session.addEventListener("visibilitychange", () => {
@@ -465,13 +493,10 @@ async function startaXr() {
     xr.session = null; s.gas = 0; s.styr = 0; s.pivot = false; lasa("Låst: VR-läget avslutat");
   });
 
-  const mul = (a, b) => { const o = new Float32Array(16);
-    for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let v = 0; for (let k = 0; k < 4; k++) v += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = v; }
-    return o; };
 
   function ruta(t, frame) {
     session.requestAnimationFrame(ruta);
-    if (session.visibilityState === "visible") xrLasStyr(frame);
+    if (session.visibilityState === "visible") { xrLasStyr(frame); xrSkarm(frame, ref); }
     if (Date.now() - senastSkickat >= SEND_MS) skickaStyr();
     const pose = frame.getViewerPose(ref); if (!pose) return;
     const layer = session.renderState.baseLayer;
@@ -484,11 +509,11 @@ async function startaXr() {
     const loc = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     gl.uniform2f(gl.getUniformLocation(prog, "halv"), bredd / 2, hojd / 2);
-    gl.uniform1f(gl.getUniformLocation(prog, "z"), -XR_AVSTAND);
+    gl.uniformMatrix4fv(gl.getUniformLocation(prog, "modell"), false, xr.modell);
     for (const view of pose.views) {
       const vp = layer.getViewport(view);
       gl.viewport(vp.x, vp.y, vp.width, vp.height);
-      gl.uniformMatrix4fv(gl.getUniformLocation(prog, "pv"), false, mul(view.projectionMatrix, view.transform.inverse.matrix));
+      gl.uniformMatrix4fv(gl.getUniformLocation(prog, "pv"), false, mul4(view.projectionMatrix, view.transform.inverse.matrix));
       gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
     }
   }
