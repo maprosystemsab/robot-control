@@ -191,9 +191,10 @@ pub struct VideoConfig {
     pub stereo_left_only: bool,
     /// Var bilden kommer ifrån: `v4l2` (webbkamera, `device`) eller `insta360`
     /// (360-kamera via `insta360-brygga`, kamera360/). Insta360 ger alltid
-    /// 1664×832 i 30 bilder/s på ~8–10 Mbit/s; ffmpeg skalar ner till
-    /// `width`×`height`/`fps`/`bitrate_kbps` med `encoder`, eller skickar den
-    /// orörd med `encoder: "copy"` (bara på snabbt nät).
+    /// 1664×832 i 30 bilder/s på ~8–10 Mbit/s; bryggan kodar om till
+    /// `width`×`height`/`fps`/`bitrate_kbps` (x264 i mjukvara, `encoder`
+    /// används inte), eller skickar den orörd med `encoder: "copy"` (bara på
+    /// snabbt nät). `device` och `input_format` gäller inte.
     pub source: String,
     /// Kommandot som startar Insta360-bryggan (`source: "insta360"`).
     pub insta360_command: String,

@@ -250,38 +250,24 @@ fn now_ms() -> u64 {
 ///   (en tittare som ansluter mitt i strömmen kan då börja avkoda direkt).
 /// * `h264_metadata=aud=insert` lägger en Access Unit Delimiter före varje
 ///   bild — det är vad `AuSplitter` delar på.
-/// * `-fps_mode passthrough` (webbkamera): låt kameran bestämma takten. I dåligt ljus
+/// * `-fps_mode passthrough`: låt kameran bestämma takten. I dåligt ljus
 ///   sänker webbkameran sin bildfrekvens; utan detta skulle ffmpeg duplicera
 ///   bilder för att fylla ut.
 fn ffmpeg_args(cfg: &VideoConfig) -> Vec<String> {
     let s = |x: &str| x.to_string();
     let kbps = format!("{}k", cfg.bitrate_kbps);
-    let mut a: Vec<String> = vec![s("-hide_banner"), s("-loglevel"), s("error"), s("-fflags"), s("nobuffer")];
-    if cfg.is_360() {
-        // H.264 från insta360-brygga på stdin. Ingen analys i början (den
-        // väntar annars in flera bilder), skala ner och glesa ut till fps.
-        a.extend([
-            s("-probesize"), s("32"), s("-analyzeduration"), s("0"),
-            s("-f"), s("h264"), s("-i"), s("pipe:0"),
-            s("-vf"), format!("scale={}:{},fps={}", cfg.width, cfg.height, cfg.fps),
-        ]);
-    } else {
-        a.extend([
-            s("-nostdin"),
-            s("-f"), s("v4l2"), s("-input_format"), cfg.input_format.clone(),
-            s("-video_size"), format!("{}x{}", cfg.width, cfg.height),
-            s("-framerate"), cfg.fps.to_string(),
-            s("-i"), cfg.device.clone(),
-        ]);
-        if cfg.stereo_left_only {
-            a.extend([s("-vf"), s("crop=iw/2:ih:0:0")]);
-        }
+    let mut a: Vec<String> = vec![
+        s("-hide_banner"), s("-loglevel"), s("error"), s("-nostdin"),
+        s("-fflags"), s("nobuffer"),
+        s("-f"), s("v4l2"), s("-input_format"), cfg.input_format.clone(),
+        s("-video_size"), format!("{}x{}", cfg.width, cfg.height),
+        s("-framerate"), cfg.fps.to_string(),
+        s("-i"), cfg.device.clone(),
+    ];
+    if cfg.stereo_left_only {
+        a.extend([s("-vf"), s("crop=iw/2:ih:0:0")]);
     }
-    a.extend([s("-pix_fmt"), s("yuv420p")]);
-    if !cfg.is_360() {
-        // (360: fps-filtret bestämmer takten. Utelämnad där finns den inte i ffmpeg < 5.1.)
-        a.extend([s("-fps_mode"), s("passthrough")]);
-    }
+    a.extend([s("-pix_fmt"), s("yuv420p"), s("-fps_mode"), s("passthrough")]);
     if cfg.encoder == "libx264" {
         a.extend([
             s("-c:v"), s("libx264"), s("-preset"), s("ultrafast"), s("-tune"), s("zerolatency"),
@@ -298,6 +284,21 @@ fn ffmpeg_args(cfg: &VideoConfig) -> Vec<String> {
         s("-f"), s("h264"), s("pipe:1"),
     ]);
     a
+}
+
+/// Argument till `insta360-brygga`. Bryggan kodar om själv (libavcodec) i
+/// stället för att gå via ffmpeg-programmet: ffmpeg som läser rå H.264 från ett
+/// rör höll kvar en hel GOP, ~1 s, uppmätt 2026-10-21. `encoder: "copy"` =
+/// kamerans ström orörd (1664×832, ~8–10 Mbit/s).
+fn brygga_args(cfg: &VideoConfig) -> Vec<String> {
+    if cfg.encoder == "copy" {
+        return Vec::new();
+    }
+    vec![
+        "--skala".into(), format!("{}x{}", cfg.width, cfg.height),
+        "--fps".into(), cfg.fps.to_string(),
+        "--kbit".into(), cfg.bitrate_kbps.to_string(),
+    ]
 }
 
 /// Väntar på tittare och kör kamerapipelinen så länge det finns någon.
@@ -368,12 +369,12 @@ async fn pipeline_once(
     tx: &broadcast::Sender<Arc<Frame>>,
     viewers: &mut watch::Receiver<usize>,
 ) -> PipelineEnd {
-    // 360-kameran: bryggan läser kameran och skriver H.264, som ffmpeg kodar
-    // om (eller som skickas orörd med encoder "copy").
+    // 360-kameran: bryggan läser kameran och kodar om själv; annars ffmpeg.
     let mut brygga = None;
-    let mut fran_brygga = None;
-    if cfg.is_360() {
+    let mut ffmpeg = None;
+    let mut stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send> = if cfg.is_360() {
         let mut b = match Command::new(&cfg.insta360_command)
+            .args(brygga_args(cfg))
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -384,34 +385,25 @@ async fn pipeline_once(
             Err(e) => return PipelineEnd::Failed(format!("kunde inte starta {}: {e}", cfg.insta360_command)),
         };
         logga_stderr(b.stderr.take(), "insta360");
-        fran_brygga = b.stdout.take();
+        let ut = b.stdout.take().expect("stdout piped");
         brygga = Some(b);
-    }
-    let mut ffmpeg = None;
-    let mut stdout: Box<dyn tokio::io::AsyncRead + Unpin + Send> = match fran_brygga {
-        Some(ut) if cfg.encoder == "copy" => Box::new(ut),
-        fran_brygga => {
-            let stdin = match fran_brygga.map(TryInto::<Stdio>::try_into) {
-                None => Stdio::null(),
-                Some(Ok(s)) => s,
-                Some(Err(e)) => return PipelineEnd::Failed(format!("kunde inte koppla bryggan till ffmpeg: {e}")),
-            };
-            let mut child = match Command::new("ffmpeg")
-                .args(ffmpeg_args(cfg))
-                .stdin(stdin)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped())
-                .kill_on_drop(true) // dör robotd dör ffmpeg, kameran släpps
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => return PipelineEnd::Failed(format!("kunde inte starta ffmpeg: {e} (är ffmpeg installerat?)")),
-            };
-            logga_stderr(child.stderr.take(), "ffmpeg");
-            let ut = child.stdout.take().expect("stdout piped");
-            ffmpeg = Some(child);
-            Box::new(ut)
-        }
+        Box::new(ut)
+    } else {
+        let mut child = match Command::new("ffmpeg")
+            .args(ffmpeg_args(cfg))
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .kill_on_drop(true) // dör robotd dör ffmpeg, kameran släpps
+            .spawn()
+        {
+            Ok(c) => c,
+            Err(e) => return PipelineEnd::Failed(format!("kunde inte starta ffmpeg: {e} (är ffmpeg installerat?)")),
+        };
+        logga_stderr(child.stderr.take(), "ffmpeg");
+        let ut = child.stdout.take().expect("stdout piped");
+        ffmpeg = Some(child);
+        Box::new(ut)
     };
 
     let mut splitter = AuSplitter::new();
@@ -550,19 +542,16 @@ mod tests {
     fn insta360_args() {
         let cfg = VideoConfig {
             source: "insta360".into(),
-            encoder: "libx264".into(),
             width: 1280,
             height: 640,
             fps: 15,
             bitrate_kbps: 1500,
             ..VideoConfig::default()
         };
-        let a = joined(&cfg);
-        assert!(a.contains("-f h264 -i pipe:0 -vf scale=1280:640,fps=15 -pix_fmt yuv420p"), "{a}");
-        assert!(!a.contains("v4l2") && !a.contains("-nostdin") && !a.contains("fps_mode"), "{a}");
-        assert!(a.contains("-b:v 1500k"), "{a}");
-        assert!(a.ends_with("-f h264 pipe:1"), "{a}");
         assert!(cfg.is_360() && !VideoConfig::default().is_360());
+        assert_eq!(brygga_args(&cfg).join(" "), "--skala 1280x640 --fps 15 --kbit 1500");
+        let orord = VideoConfig { encoder: "copy".into(), ..cfg };
+        assert!(brygga_args(&orord).is_empty());
     }
 
     #[tokio::test]

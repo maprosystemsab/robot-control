@@ -27,10 +27,16 @@ if [[ -z "$SDK" || ! -f "$SDK/lib/libCameraSDK.so" ]]; then
 fi
 echo "SDK: $SDK"
 
+# Omkodningen (--skala) använder libavcodec/libswscale med libx264.
+if ! pkg-config --exists libavcodec libswscale libavutil; then
+    sudo apt-get install -y libavcodec-dev libswscale-dev libavutil-dev pkg-config g++
+fi
+
 UT="$HAR/bygg"
 mkdir -p "$UT"
 g++ -std=c++17 -O2 -Wall -o "$UT/insta360-brygga" "$HAR/insta360_brygga.cpp" \
-    -I"$SDK/include" -L"$SDK/lib" -lCameraSDK -lpthread \
+    -I"$SDK/include" -L"$SDK/lib" -lCameraSDK \
+    $(pkg-config --cflags --libs libavcodec libswscale libavutil) -lpthread \
     -Wl,-rpath,/usr/local/lib
 echo "Byggd: $UT/insta360-brygga"
 

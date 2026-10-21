@@ -1,17 +1,23 @@
 // insta360-brygga: Insta360-kamerans förhandsström (Camera SDK, USB) -> H.264
 // Annex-B på stdout, i samma form som robotd väntar sig av ffmpeg:
 //
-//  * en Access Unit Delimiter före varje bild (robotd:s AuSplitter delar på AUD),
+//  * en Access Unit Delimiter mellan bilderna (robotd:s AuSplitter delar på AUD),
 //  * SPS/PPS före varje nyckelbild (en tittare som ansluter mitt i strömmen
 //    kan börja avkoda direkt).
 //
 // Bilden är två fisheye-bilder sida vid sida (främre + bakre objektivet); de sys
-// ihop till en sfär i webbläsaren, så här görs ingen omkodning alls.
+// ihop till en sfär i webbläsaren. Kameran skickar alltid 1664×832 i 30 bilder/s
+// på ~8–10 Mbit/s (den bryr sig inte om begärd upplösning/bitrate), för mycket
+// för mobilnätet. Med --skala kodas den därför om här: avkoda, skala, x264.
+//
+// Omkodningen görs med libavcodec direkt och inte med ffmpeg-programmet: ffmpeg
+// 4.4 som läser rå H.264 från ett rör håller kvar en hel GOP (1 s med kamerans
+// nyckelbild varje sekund) innan bilderna kommer ut, uppmätt 2026-10-21.
 //
 // Kameran måste stå i USB-läget "Control with Android" (USB-id 2e1a:0002) och
 // användaren behöver rättighet till enheten (udev-regel, se bygg.sh).
 //
-// Användning: insta360-brygga [--upplosning 1440x720] [--kbit 2000] [--lrv]
+// Användning: insta360-brygga [--skala 1280x640 [--fps 15] [--kbit 1500]]
 //             [--kalibrering FIL]
 // Avslutas med SIGTERM/SIGINT eller när stdout stängs (robotd dödar oss).
 
@@ -19,6 +25,12 @@
 #include <camera/device_discovery.h>
 #include <camera/photography_settings.h>
 #include <stream/stream_delegate.h>
+
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavutil/opt.h>
+#include <libswscale/swscale.h>
+}
 
 #include <atomic>
 #include <chrono>
@@ -29,7 +41,6 @@
 #include <fstream>
 #include <iostream>
 #include <memory>
-#include <mutex>
 #include <string>
 #include <thread>
 #include <sys/stat.h>
@@ -60,9 +71,20 @@ bool skriv_allt(const uint8_t* p, size_t n) {
     return true;
 }
 
+const uint8_t AUD[] = {0, 0, 0, 1, 0x09, 0xf0};
+
+// En bild till robotd. AUD skrivs EFTER bilden (plus en allra först):
+// robotd:s AuSplitter släpper en bild när nästa AUD kommer, så med AUD efter
+// går bilden iväg direkt i stället för en bild (67 ms vid 15/s) senare.
+bool skriv_bild(const uint8_t* d, size_t n) {
+    static bool forsta = true;
+    if (forsta && !skriv_allt(AUD, sizeof AUD)) return false;
+    forsta = false;
+    return skriv_allt(d, n) && skriv_allt(AUD, sizeof AUD);
+}
+
 struct Nal {
     size_t start; // index för startkoden
-    size_t data;  // index för NAL-huvudet
     uint8_t typ;
 };
 
@@ -74,7 +96,7 @@ std::vector<Nal> hitta_nal(const uint8_t* d, size_t n) {
             if (d[i + 2] == 1) sk = 3;
             else if (d[i + 2] == 0 && d[i + 3] == 1) sk = 4;
             if (sk && i + sk < n) {
-                ut.push_back({i, i + sk, static_cast<uint8_t>(d[i + sk] & 0x1f)});
+                ut.push_back({i, static_cast<uint8_t>(d[i + sk] & 0x1f)});
                 i += sk - 1;
             }
         }
@@ -82,8 +104,122 @@ std::vector<Nal> hitta_nal(const uint8_t* d, size_t n) {
     return ut;
 }
 
+// Avkodar kamerans bilder, glesar ut till `fps`, skalar och kodar med x264.
+// Allt synkront i kamerans anrop: ingen kö = ingen växande fördröjning.
+class Omkodare {
+public:
+    bool starta(int w, int h, int fps, int kbit) {
+        fps_ = fps;
+        const AVCodec* dk = avcodec_find_decoder(AV_CODEC_ID_H264);
+        const AVCodec* ek = avcodec_find_encoder_by_name("libx264");
+        if (!dk || !ek) {
+            std::cerr << "insta360-brygga: libavcodec saknar H.264-avkodare eller libx264\n";
+            return false;
+        }
+        dek_ = avcodec_alloc_context3(dk);
+        dek_->thread_count = 1;              // flera trådar = flera bilders fördröjning
+        dek_->flags |= AV_CODEC_FLAG_LOW_DELAY;
+        if (avcodec_open2(dek_, dk, nullptr) < 0) return false;
+
+        enk_ = avcodec_alloc_context3(ek);
+        enk_->width = w;
+        enk_->height = h;
+        enk_->pix_fmt = AV_PIX_FMT_YUV420P;
+        enk_->time_base = {1, fps};
+        enk_->framerate = {fps, 1};
+        enk_->bit_rate = int64_t(kbit) * 1000;
+        enk_->rc_max_rate = enk_->bit_rate;
+        enk_->rc_buffer_size = kbit * 500;   // halv sekund, som ffmpeg-vägen i robotd
+        enk_->gop_size = fps;                // nyckelbild varje sekund
+        enk_->max_b_frames = 0;
+        av_opt_set(enk_->priv_data, "preset", "ultrafast", 0);
+        av_opt_set(enk_->priv_data, "tune", "zerolatency", 0);
+        if (avcodec_open2(enk_, ek, nullptr) < 0) return false;
+
+        in_ = av_frame_alloc();
+        ut_ = av_frame_alloc();
+        ut_->format = AV_PIX_FMT_YUV420P;
+        ut_->width = w;
+        ut_->height = h;
+        if (av_frame_get_buffer(ut_, 0) < 0) return false;
+        pkt_ = av_packet_alloc();
+        return true;
+    }
+
+    ~Omkodare() {
+        sws_freeContext(sws_);
+        av_frame_free(&in_);
+        av_frame_free(&ut_);
+        av_packet_free(&pkt_);
+        avcodec_free_context(&dek_);
+        avcodec_free_context(&enk_);
+    }
+
+    // En hel bild (Annex-B, utan AUD). false = skrivfel (robotd borta).
+    bool bild(const std::vector<uint8_t>& au) {
+        int64_t t0 = nu_ms();
+        buf_.assign(au.begin(), au.end());
+        buf_.resize(au.size() + AV_INPUT_BUFFER_PADDING_SIZE, 0);
+        pkt_->data = buf_.data();
+        pkt_->size = static_cast<int>(au.size());
+        if (avcodec_send_packet(dek_, pkt_) < 0) return true; // trasig bild: hoppa över
+        bool ok = true;
+        while (ok && avcodec_receive_frame(dek_, in_) == 0) {
+            // Gles ut till fps efter klockan (kameran ger 30/s).
+            int64_t nu = nu_ms(), steg = 1000 / fps_;
+            if (nu < nasta_ms_) continue;
+            nasta_ms_ = (nu - nasta_ms_ > steg) ? nu + steg : nasta_ms_ + steg;
+            ok = koda(in_);
+        }
+        tid_ms_ += nu_ms() - t0;
+        if (++bilder_ % 300 == 0) {
+            std::cerr << "insta360-brygga: omkodning " << tid_ms_ / 300.0 << " ms/bild i snitt\n";
+            tid_ms_ = 0;
+        }
+        return ok;
+    }
+
+private:
+    bool koda(AVFrame* f) {
+        // Kameran ger yuvj420p (full färgomfång, "jpeg"); swscale vill ha
+        // yuv420p + uttryckligt omfång. Utbilden är vanligt (begränsat) omfång.
+        auto fmt = static_cast<AVPixelFormat>(f->format);
+        bool full = fmt == AV_PIX_FMT_YUVJ420P || f->color_range == AVCOL_RANGE_JPEG;
+        if (fmt == AV_PIX_FMT_YUVJ420P) fmt = AV_PIX_FMT_YUV420P;
+        SwsContext* forra = sws_;
+        sws_ = sws_getCachedContext(sws_, f->width, f->height, fmt, ut_->width, ut_->height,
+                                    AV_PIX_FMT_YUV420P, SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+        if (!sws_ || av_frame_make_writable(ut_) < 0) return true;
+        if (sws_ != forra) {
+            const int* k = sws_getCoefficients(SWS_CS_ITU709);
+            sws_setColorspaceDetails(sws_, k, full ? 1 : 0, k, 0, 0, 1 << 16, 1 << 16);
+        }
+        sws_scale(sws_, f->data, f->linesize, 0, f->height, ut_->data, ut_->linesize);
+        ut_->pts = pts_++;
+        if (avcodec_send_frame(enk_, ut_) < 0) return true;
+        bool ok = true;
+        while (ok && avcodec_receive_packet(enk_, pkt_) == 0) {
+            ok = skriv_bild(pkt_->data, pkt_->size);
+            av_packet_unref(pkt_);
+        }
+        return ok;
+    }
+
+    AVCodecContext* dek_ = nullptr;
+    AVCodecContext* enk_ = nullptr;
+    SwsContext* sws_ = nullptr;
+    AVFrame* in_ = nullptr;
+    AVFrame* ut_ = nullptr;
+    AVPacket* pkt_ = nullptr;
+    std::vector<uint8_t> buf_;
+    int fps_ = 15;
+    int64_t nasta_ms_ = 0, pts_ = 0, tid_ms_ = 0, bilder_ = 0;
+};
+
 class Brygga : public ins_camera::StreamDelegate {
 public:
+    explicit Brygga(std::unique_ptr<Omkodare> omk) : omk_(std::move(omk)) {}
+
     void OnVideoData(const uint8_t* data, size_t size, int64_t, uint8_t, int stream_index) override {
         if (stream_index != 0 || g_sluta) return;
         auto nal = hitta_nal(data, size);
@@ -94,7 +230,7 @@ public:
             if (nal[i].typ == 8) pps_.assign(data + nal[i].start, data + slut);
             if (nal[i].typ == 5) har_idr = true;
         }
-        if (antal_ < 5) {
+        if (antal_ < 3) {
             std::cerr << "insta360-brygga: bild " << antal_ << ", " << size << " byte, NAL:";
             for (auto& x : nal) std::cerr << " " << int(x.typ);
             std::cerr << std::endl;
@@ -105,17 +241,19 @@ public:
             if (!har_idr || sps_.empty() || pps_.empty()) return;
             startad_ = true;
         }
-        static const uint8_t aud[] = {0, 0, 0, 1, 0x09, 0xf0};
-        bool ok = skriv_allt(aud, sizeof aud);
-        if (ok && har_idr && !har_sps) {
-            ok = skriv_allt(sps_.data(), sps_.size()) && skriv_allt(pps_.data(), pps_.size());
+        // Bilden: SPS/PPS före nyckelbilder, och utan kamerans ev. egna AUD
+        // (de skulle ge dubbla bilder i robotd).
+        au_.clear();
+        if (har_idr && !har_sps) {
+            au_.insert(au_.end(), sps_.begin(), sps_.end());
+            au_.insert(au_.end(), pps_.begin(), pps_.end());
         }
-        // AUD som kameran ev. redan skickar skulle ge dubbla bilder i robotd.
-        for (size_t i = 0; ok && i < nal.size(); ++i) {
+        for (size_t i = 0; i < nal.size(); ++i) {
             if (nal[i].typ == 9) continue;
             size_t slut = i + 1 < nal.size() ? nal[i + 1].start : size;
-            ok = skriv_allt(data + nal[i].start, slut - nal[i].start);
+            au_.insert(au_.end(), data + nal[i].start, data + slut);
         }
+        bool ok = omk_ ? omk_->bild(au_) : skriv_bild(au_.data(), au_.size());
         if (!ok) g_sluta = true;
         g_senaste_bild_ms = nu_ms();
     }
@@ -124,26 +262,16 @@ public:
     void OnExposureData(const ins_camera::ExposureData&) override {}
 
 private:
-    std::vector<uint8_t> sps_, pps_;
+    std::unique_ptr<Omkodare> omk_;
+    std::vector<uint8_t> sps_, pps_, au_;
     bool startad_ = false;
     uint64_t antal_ = 0;
 };
 
-bool las_upplosning(const std::string& s, ins_camera::VideoResolution& ut) {
-    using R = ins_camera::VideoResolution;
-    if (s == "1920x960") ut = R::RES_1920_960P30;
-    else if (s == "1440x720") ut = R::RES_1440_720P30;
-    else if (s == "960x480") ut = R::RES_960_480P30;
-    else return false;
-    return true;
-}
-
 } // namespace
 
 int main(int argc, char** argv) {
-    ins_camera::VideoResolution upplosning = ins_camera::VideoResolution::RES_1440_720P30;
-    uint32_t kbit = 2000;
-    bool lrv = false;
+    int skala_b = 0, skala_h = 0, fps = 15, kbit = 1500;
     std::string kalibrering_fil;
     for (int i = 1; i < argc; ++i) {
         std::string a = argv[i];
@@ -151,24 +279,38 @@ int main(int argc, char** argv) {
             if (i + 1 >= argc) { std::cerr << a << " saknar värde\n"; std::exit(2); }
             return argv[++i];
         };
-        if (a == "--upplosning") {
-            if (!las_upplosning(nasta(), upplosning)) {
-                std::cerr << "okänd upplösning (1920x960, 1440x720, 960x480)\n";
+        if (a == "--skala") {
+            if (std::sscanf(nasta().c_str(), "%dx%d", &skala_b, &skala_h) != 2 || skala_b <= 0 || skala_h <= 0) {
+                std::cerr << "--skala ska vara BREDDxHÖJD, t.ex. 1280x640\n";
                 return 2;
             }
-        } else if (a == "--kbit") kbit = static_cast<uint32_t>(std::stoul(nasta()));
-        else if (a == "--lrv") lrv = true;
+        } else if (a == "--fps") fps = std::stoi(nasta());
+        else if (a == "--kbit") kbit = std::stoi(nasta());
         else if (a == "--kalibrering") kalibrering_fil = nasta();
         else {
-            std::cerr << "användning: insta360-brygga [--upplosning 1440x720] [--kbit 2000] [--lrv] "
+            std::cerr << "användning: insta360-brygga [--skala 1280x640 [--fps 15] [--kbit 1500]] "
                          "[--kalibrering FIL]\n";
             return 2;
         }
+    }
+    if (fps < 1 || fps > 30 || kbit < 100) {
+        std::cerr << "--fps 1–30, --kbit minst 100\n";
+        return 2;
     }
 
     std::signal(SIGPIPE, SIG_IGN); // skrivfel hanteras som "robotd borta"
     std::signal(SIGTERM, [](int) { g_sluta = true; });
     std::signal(SIGINT, [](int) { g_sluta = true; });
+
+    av_log_set_level(AV_LOG_ERROR); // x264/swscale pratar annars på varje bild
+    std::unique_ptr<Omkodare> omk;
+    if (skala_b) {
+        omk = std::make_unique<Omkodare>();
+        if (!omk->starta(skala_b, skala_h, fps, kbit)) {
+            std::cerr << "insta360-brygga: kunde inte starta omkodningen\n";
+            return 1;
+        }
+    }
 
     if (!kalibrering_fil.empty() && kalibrering_fil[0] != '/') {
         char cwd[4096];
@@ -211,22 +353,26 @@ int main(int argc, char** argv) {
         for (size_t i = 0; i < pp.GetCalibrationCount(); ++i) f << pp.GetCalibration(i) << "\n";
     }
 
-    std::shared_ptr<ins_camera::StreamDelegate> delegat = std::make_shared<Brygga>();
+    std::shared_ptr<ins_camera::StreamDelegate> delegat = std::make_shared<Brygga>(std::move(omk));
     kamera->SetStreamDelegate(delegat);
+    // Upplösning och bitrate här ignoreras av X4 Air (alltid 1664×832), men
+    // måste vara satta.
     ins_camera::LiveStreamParam param;
-    param.video_resolution = upplosning;
-    param.lrv_video_resulution = upplosning;
-    param.video_bitrate = kbit * 1000;
-    param.lrv_video_bitrate = kbit * 1000;
+    param.video_resolution = ins_camera::VideoResolution::RES_1920_960P30;
+    param.lrv_video_resulution = ins_camera::VideoResolution::RES_1920_960P30;
     param.enable_audio = false;
     param.enable_gyro = false;
-    param.using_lrv = lrv;
+    param.using_lrv = false;
     if (!kamera->StartLiveStreaming(param)) {
         std::cerr << "insta360-brygga: StartLiveStreaming misslyckades\n";
         kamera->Close();
         return 1;
     }
-    std::cerr << "insta360-brygga: ström startad\n";
+    std::cerr << "insta360-brygga: ström startad"
+              << (skala_b ? " (omkodas till " + std::to_string(skala_b) + "x" + std::to_string(skala_h) + ", " +
+                                std::to_string(fps) + " bilder/s, " + std::to_string(kbit) + " kbit/s)"
+                          : std::string(" (orörd)"))
+              << std::endl;
 
     // Inga bilder på 5 s -> avsluta med fel så robotd startar om oss.
     g_senaste_bild_ms = nu_ms();
