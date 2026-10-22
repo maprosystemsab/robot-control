@@ -38,7 +38,7 @@ Bygg en profil åt gången. Flashskripten kör redan `make clean` före bygget.
 | Riktning DI1-4 (74AXP1T45, hög = STM32 → kontakt) | PE4 / PB3 / PB4 / PD7 | DIR_U34 / U38 / U39 / U40 | **hög/hög/hög/låg** (ut/ut/ut/in) |
 | Lysdioder | PC10 / PC11 | LED0 / LED1 | **grön / röd** |
 | Spänningsmätning | PC1 | PWR_5VDIV | 20k/10k, ×3; **reglerad 5 V**, inte batteri |
-| Analoga in J30 | PA4 / PA5 / PA6 | ADC11 / ADC12 / ADC13 | MCU ADC-kanaler 4/5/6 |
+| Analoga in J30 | PA4 / PA5 / PA6 | ADC11 / ADC12 / ADC13 | MCU ADC-kanaler 4/5/6; **PA4 (J30 stift 2) = vinkelgivaren** (RobAnt, `ANGLE_SENSOR_J30`, delare 20k/10k) |
 | Reserverade GPS-hjulpulsutgångar | PD1 / PD0 | WHEEL_1 / WHEEL_2 | reserverade för F9R |
 | Telemetri/radio | PC12/PD2 (UART5), PD3-6 (USART2), PA0/PA1 (UART4) | TEL2 / TEL3 / UART4 | används inte |
 | Debug-seriell | PD8 / PD9 | USART3_TX/RX_DEBUG | används inte |
@@ -63,6 +63,7 @@ annars ge en odefinierad resetnivå).
 ## Kvar
 
 - Prova allt på riktigt kort: USB, CAN (VESC/ADDIO), GPS 1, BMI270, DI1-4, lysdioder.
+- Vinkelgivaren på J30 stift 2 (signal) och stift 5 (GND): byggd 2026-10-22, inte provad med givare.
 - BMI270:ns axlar och kortets riktning på maskinen (`BOARD_YAW_ROT`).
 - Kompass IIS2MDC (drivrutin saknas; kompassen används inte i dag).
 - Två antenner: RXD2/TXD2 på F9P:erna är inte inkopplade, så RTCM från GPS 1 till

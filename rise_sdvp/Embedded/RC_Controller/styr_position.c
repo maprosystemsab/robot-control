@@ -43,7 +43,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 
 extern float frontangle;
 

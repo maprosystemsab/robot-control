@@ -187,7 +187,7 @@ int main(void) {
 	for(;;) {
 		chThdSleepMilliseconds(10);
 		packet_timerfunc();
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 		adconv_update_angle();
 		styrpos_update();
 #endif

@@ -38,7 +38,7 @@
 static volatile int current_motor_direction = 1;
 static int mode;
 static void vandning_init(void);
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 // RobAnt: autopiloten styr bakbenen med vinkelgivaren och får differentialen
 // (se längre ner, vid differentialen).
 static bool ap_styr_bakben(float steering_angle_rad);
@@ -416,7 +416,7 @@ void motor_set_steering_autopilot(float steering_angle, float circle_radius) {
                             / main_config.vehicle.steering_range)
                             + main_config.vehicle.steering_center;
             servo_simple_set_pos_ramp(servo_pos, true);
-        #elif defined(ANGLE_SENSOR_PA3)
+        #elif defined(ANGLE_SENSOR)
             // RobAnt: bakbenen till autopilotens vinkel med vinkelstyrningen.
             // Går det inte (ingen givare) stannar autopiloten i stället för att köra rakt.
             m_ap_kan_styra = ap_styr_bakben(steering_angle);
@@ -462,7 +462,7 @@ void motor_set_speed_autopilot(float speed) {
             bldc_interface_set_rpm((int)rpm_r);
             comm_can_unlock_vesc();
         #else
-            #if defined(ANGLE_SENSOR_PA3)
+            #if defined(ANGLE_SENSOR)
                 // RobAnt: duty med återkoppling från hastighetsgivaren (se ap_fart).
                 // Varvtal (RPM) fungerade inte: hydraulpumpen behöver ~87 000 ERPM för
                 // 3 km/h men fordonsinställningarna gav ~255.
@@ -767,7 +767,7 @@ static void skicka_fart(float fart) {
 	m_fart_mal_tid = chVTGetSystemTimeX();
 }
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 // Autopilotens vinkel räknas matematiskt (+ = vänster); vinkelgivaren har + = höger.
 // Tecknet kan bytas med `diff aptecken` om autopiloten svänger åt fel håll.
 static float m_ap_tecken = -1.0f;
@@ -856,7 +856,7 @@ static void terminal_diff(int argc, const char **argv) {
 						}
 					}
 				}
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 				else if (strcmp(argv[1], "aptecken") == 0 && x != 0.0f) {
 					m_ap_tecken = x > 0.0f ? 1.0f : -1.0f;
 				} else if (strcmp(argv[1], "apfart") == 0 && x > 0.1f && x < 20.0f) {
@@ -876,7 +876,7 @@ static void terminal_diff(int argc, const char **argv) {
 			styrpos_vinkel_giltig() ? "OK" : "saknas/okalibrerad: samma fart båda sidor");
 	commands_printf("Gasramp: %.2f duty/s upp, %.2f duty/s ned (diff ramp UPP [NED], 0 = av). Nu V %.2f H %.2f.",
 			(double)m_ramp_upp, (double)m_ramp_ned, (double)m_fart_ut_v, (double)m_fart_ut_h);
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 	commands_printf("Autopilot: styr bakbenen med vinkelgivaren, tecken %+.0f (diff aptecken 1/-1), %s. "
 			"Fart med duty: %.2f m/s per duty (diff apfart X), I %.2f (diff api X), mätt fart %.2f m/s.",
 			(double)m_ap_tecken, m_ap_kan_styra ? "kan styra" : "KAN INTE STYRA (står still)",

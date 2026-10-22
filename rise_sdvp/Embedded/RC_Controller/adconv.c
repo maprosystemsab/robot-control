@@ -44,10 +44,15 @@ static float vin_filter = 0.0;
 
 static void terminal_cmd_get_vin(int argc, const char **argv);
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
+#ifdef IS_ROVMCU
+// MP101: vinkelgivaren på J30 stift 2 (PA4, ADC-kanal 4) är plats 2 i sekvensen.
+#define ANGLE_SAMPLE_INDEX		1
+#else
 // Vinkelgivaren på PA3 (ADC-kanal 3) ligger på plats 6 i sekvensen (samples[5]),
 // som annars var en dubblett av IN11.
 #define ANGLE_SAMPLE_INDEX		5
+#endif
 extern float frontangle;
 extern uint16_t last_sensorvalue;
 static float angle_mv_filter = 0.0;
@@ -75,7 +80,7 @@ static void adccallback(ADCDriver *adcp, adcsample_t *buffer, size_t n) {
 #endif
 	UTILS_LP_FAST(vin_filter, sample, 0.02);
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 	// Givarens egen spänning (före spänningsdelaren) i mV
 	float angle_mv = (samples[ANGLE_SAMPLE_INDEX] / 4095.0 * v_reg) * ANGLE_SENSOR_DIVIDER * 1000.0;
 	UTILS_LP_FAST(angle_mv_filter, angle_mv, 0.02);
@@ -168,7 +173,7 @@ void adconv_init(void) {
 			0,
 			terminal_cmd_get_vin);
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 	terminal_register_command_callback(
 			"vinkel",
 			"Vinkelgivaren: spänning (mV), vinkel och status.",
@@ -256,7 +261,7 @@ static void terminal_cmd_get_vin(int argc, const char **argv) {
 #endif
 }
 
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 /**
  * Givarens spänning rakt fram (mV). Kalibreras med `vinkel_noll` och sparas i
  * main_config.vehicle.sensorcentre; orimligt värde (t.ex. standard 580 från

@@ -750,7 +750,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 				float c = buffer_get_float32_auto(data, &ind);
 				float r = buffer_get_float32_auto(data, &ind);
 				float l = buffer_get_float32_auto(data, &ind);
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 				// Vinkelgivarens kalibrering (rakt fram/höger/vänster i mV) ändras med
 				// vinkel_noll/hoger/vanster. RControlStations Write skickar gamla värden
 				// ur sitt fönster (t.ex. 1024/1024/100) och raderade kalibreringen på mk1
@@ -1202,7 +1202,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			int32_t send_index = 0;
 			m_send_buffer[send_index++] = id_ret;
 			m_send_buffer[send_index++] = CMD_GET_VINKEL;
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 			m_send_buffer[send_index++] = adconv_angle_sensor_ok() ? 1 : 2;
 			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
 			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);
@@ -1229,7 +1229,7 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 			int32_t send_index = 0;
 			m_send_buffer[send_index++] = id_ret;
 			m_send_buffer[send_index++] = CMD_GET_VINKEL;
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 			m_send_buffer[send_index++] = adconv_angle_sensor_ok() ? 1 : 2;
 			m_send_buffer[send_index++] = adconv_angle_calibrated() ? 1 : 0;
 			buffer_append_uint16(m_send_buffer, last_sensorvalue, &send_index);

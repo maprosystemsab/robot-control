@@ -116,7 +116,7 @@ static void vehicle_update_pos(float distance, float turn_rad_rear, float angle_
  * (autopiloten på mk1 2026-10-15).
  */
 static float pos_steering_angle_rad(void) {
-#ifdef ANGLE_SENSOR_PA3
+#ifdef ANGLE_SENSOR
 	extern float frontangle;
 	return adconv_angle_sensor_ok() ? -frontangle * (float)M_PI / 180.0f : 0.0f;
 #else

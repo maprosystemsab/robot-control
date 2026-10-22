@@ -85,11 +85,19 @@
 // i stället för servoutgång. Vinkeln = (U - CENTER) * DEG_PER_MV.
 #define ANGLE_SENSOR_PA3
 #define ANGLE_SENSOR_DIVIDER        ((12.0 + 22.0) / 22.0)
+#else
+// MP101: samma vinkelgivare på J30 stift 2 (analog in 1, PA4), jord på stift 5.
+// Kortets egen spänningsdelare R132 = 20k, R141 = 10k.
+#define ANGLE_SENSOR_J30
+#define ANGLE_SENSOR_DIVIDER        ((20.0 + 10.0) / 10.0)
+#endif	// IS_ROVMCU
+// Vinkelgivaren oavsett kort: funktionerna (självcentrering, vändning, autopilotens
+// bakbensstyrning) och kalibreringen. Bara själva ingången skiljer mellan korten.
+#define ANGLE_SENSOR
 #define ANGLE_SENSOR_CENTER_MV      2500.0	// givarens spänning rakt fram — TODO: kalibrera
 #define ANGLE_SENSOR_DEG_PER_MV     0.072	// 360° / 5000 mV; byt tecken om vinkeln går åt fel håll
 #define ANGLE_SENSOR_MIN_MV         100.0	// under detta: magneten saknas/givarfel
 #define ANGLE_SENSOR_MAX_DEG        30.0	// styrvinkel vid fullt utslag (vinkel_hoger/vinkel_vanster)
-#endif	// IS_ROVMCU: vinkelgivaren på PA3 finns bara på det gamla kortet
 #endif
 
 #ifdef DRANGEN_GAMMAL
