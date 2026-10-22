@@ -113,6 +113,13 @@ if [ ! -f /etc/robotd/config.json ]; then
   else
     VIDEO_ENCODER="${VIDEO_ENCODER:-h264_v4l2m2m}"
   fi
+  # Belysningsreläet sitter på GPIO17, utom på MP101/ROV_MCU (CM5) där GPIO17 är
+  # STM32:ans reset: där skulle Belysning-knappen starta om styrkortet.
+  if grep -q "Compute Module 5" /proc/device-tree/model 2>/dev/null; then
+    LIGHTING_GPIO="${LIGHTING_GPIO:-23}"
+  else
+    LIGHTING_GPIO="${LIGHTING_GPIO:-17}"
+  fi
   sudo tee /etc/robotd/config.json > /dev/null <<EOF
 {
   "robot_id": "${ROBOT_ID}",
@@ -120,7 +127,7 @@ if [ ! -f /etc/robotd/config.json ]; then
   "vesc_profile": { "roller": {} },
   "watchdog_soft_ms": 150,
   "watchdog_hard_ms": 400,
-  "lighting_gpio_pin": 17,
+  "lighting_gpio_pin": ${LIGHTING_GPIO},
   "car_client_addr": "127.0.0.1:8300",
   "car_client_id": ${CAR_ID},
   "known_vesc_ids": [${VESC_IDS}],
