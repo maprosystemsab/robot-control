@@ -106,9 +106,9 @@ if [ ! -f /etc/robotd/config.json ]; then
   # vilken av /dev/vehicle eller /dev/car som gäller hos er — kontrollera
   # med `ls -la /dev/vehicle /dev/car` på Pi:n om ni är osäkra).
   USB_DEVICE_PATH="${USB_DEVICE_PATH:-/dev/vehicle}"
-  # Pi 5 saknar hårdvarukodaren h264_v4l2m2m (videon startar aldrig), så där
-  # kodas videon i programvara (libx264). Pi 4 behåller hårdvarukodaren.
-  if grep -q "Raspberry Pi 5" /proc/device-tree/model 2>/dev/null; then
+  # Pi 5 och CM5 saknar hårdvarukodaren h264_v4l2m2m (videon startar aldrig), så
+  # där kodas videon i programvara (libx264). Pi 4 behåller hårdvarukodaren.
+  if grep -qE "Raspberry Pi 5|Compute Module 5" /proc/device-tree/model 2>/dev/null; then
     VIDEO_ENCODER="${VIDEO_ENCODER:-libx264}"
   else
     VIDEO_ENCODER="${VIDEO_ENCODER:-h264_v4l2m2m}"
