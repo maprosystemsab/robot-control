@@ -94,7 +94,7 @@ def main():
             ["3", "J22 / J15", "CAN2: ledig (avstängd i firmwaren)"],
             ["4", "J26 / J42", "<b>DI4</b>: hastighetsgivaren (hjulpulser)"],
             ["5–7", "J24/J37, J23/J32, J18/J27", "DI3, DI2, DI1: lediga (utgångar i firmwaren)"],
-            ["8", "J30", "<b>Analoga ingångar</b>: vinkelgivaren för styrningen"],
+            ["8", "J30", "<b>Analoga ingångar</b>: vinkelgivaren för styrningen (stift 2)"],
             ["9", "X1", "Antenn till GPS 1 (U10), den som används för position och RTK"],
             ["10", "X2", "Antenn till GPS 2 (U7), till kurs med två antenner senare"],
             ["11", "J29", "Ethernet till routern"],
@@ -136,9 +136,9 @@ def main():
             "Inom styrutslaget (±30°) ger givaren cirka 2,1–2,9 V, med god marginal till 5 V.",
             "Efter inkoppling: kör <i>Kalibrera styrvinkel…</i> i RControlStation som vanligt.",
         ]),
-        varning("Firmwaren för det nya kortet läser ännu inte vinkelgivaren på J30. Utan den fungerar "
-                "inte självcentrering, autocentrering och vändning. Stödet ska läggas till innan kortet "
-                "sätts i en maskin."),
+        tips("Firmwaren läser vinkelgivaren på J30 stift 2 från och med 2026-10-22 (rise_sdvp 74aced19). "
+             "Självcentrering, autocentrering och vändning fungerar som på det gamla kortet. "
+             "Det gamla kortets firmware är oförändrad."),
 
         h1("CAN till VESC: CAN1 (nr 2)"),
         tabell([
