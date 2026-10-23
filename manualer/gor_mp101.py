@@ -50,10 +50,10 @@ MARKERINGAR = [
 ]
 
 # Stiftnumrering, uppmätt på kort 2 (2026-10-23): kontaktnummer -> (antal stift, var stift 1 sitter).
-# CAN räknas från matningsplinten, DI åt andra hållet, J30 från änden närmast kontaktraden.
+# CAN och DI räknas från änden längst från matningsplinten, J30 från änden närmast kontaktraden.
 STIFT = {
-    2: (4, "vanster"),
-    3: (4, "vanster"),
+    2: (4, "hoger"),
+    3: (4, "hoger"),
     4: (3, "hoger"),
     5: (3, "hoger"),
     6: (3, "hoger"),
@@ -128,9 +128,9 @@ def main():
                      "Små siffror = stiftnummer, stift 1 är ifyllt."),
         h2("Kontaktraden förstorad"),
         pdfstil.bild("_mp101_rad.png", 175,
-                     "Stift 1 är ifyllt. CAN räknas från matningen, DI åt andra hållet."),
-        varning("CAN och DI räknas åt <b>olika håll</b>. På CAN sitter stift 1 närmast "
-                "matningsplinten. På DI sitter stift 1 längst bort från matningsplinten."),
+                     "Stift 1 är ifyllt."),
+        tips("På CAN och DI sitter stift 1 i änden <b>längst bort från matningsplinten</b> "
+             "(till höger i bilden). Stift 1 är +5 V."),
         tabell([
             ["Nr", "Kontakt", "Används till"],
             ["1", "J6 / J28", "Matning 12 V (7–60 V) från batteriet"],
@@ -195,7 +195,7 @@ def main():
             ["3", "<b>CANL</b>"],
             ["4", "<b>GND</b>"],
         ], bredder=[20, 155]),
-        tips("Stift 1 sitter i änden <b>närmast matningsplinten</b> (till vänster i bilden)."),
+        tips("Stift 1 sitter i änden <b>längst bort från matningsplinten</b> (till höger i bilden)."),
         punkter([
             "Koppla CANH, CANL och GND till VESC:arnas CAN-buss.",
             "Kortet har inbyggd terminering (2 × 60 Ω), så det ska sitta i ena änden av bussen.",
