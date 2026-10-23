@@ -215,7 +215,7 @@ def main():
         # Mallen är en tvåfärgsfil sparad i Bambu Studio 2.7, utökad med ett tredje filament
         # (bambu_p2s_projekt_3f.json). Inget rött filament ännu: byt filament 3 i Bambu.
         projekt = json.load(open(os.path.join(HAR, "bambu_p2s_projekt_3f.json")))
-        projekt["filament_colour"] = ["#FF6A13", "#000000", "#C12E1F"]
+        projekt["filament_colour"] = ["#FF6A13", "#000000", "#DA3832"]   # rött = loggans streck (maprologo-vit.png)
         # Skarp text (den skrivs i de första lagren, mot plattan): tunt, smalt och långsamt
         # första lager, och mer rensning så att svart inte stänker in i orange.
         projekt["initial_layer_print_height"] = "0.16"
