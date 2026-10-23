@@ -49,9 +49,41 @@ MARKERINGAR = [
     (15, "GPS 2 (U7)", 3549, 1548, 4119, 1986, BLA),
 ]
 
+# Stiftnumrering, uppmätt på kort 2 (2026-10-23): kontaktnummer -> (antal stift, var stift 1 sitter).
+# CAN räknas från matningsplinten, DI åt andra hållet, J30 från änden längst från kontaktraden.
+STIFT = {
+    2: (4, "vanster"),
+    3: (4, "vanster"),
+    4: (3, "hoger"),
+    5: (3, "hoger"),
+    6: (3, "hoger"),
+    7: (3, "hoger"),
+    8: (5, "uppe"),
+}
+# Förstoringen av kontaktraden (samma koordinater som MARKERINGAR)
+RAD = (2380, 2050, 4180, 2550)
 
-def kortbild(fil):
-    """Renderar placeringsritningen och ritar numrerade rutor runt kontakterna."""
+
+def stiftsiffror(d, x0, y0, x1, y1, farg, antal, ettan, font):
+    """Ritar stiftnumren i en kontakt. Stift 1 fylls med kontaktens färg."""
+    r = 27
+    for i in range(antal):
+        nr = i + 1 if ettan in ("vanster", "uppe") else antal - i
+        if ettan == "uppe":
+            cx, cy = x0 - 12 - r - 10, y0 + (y1 - y0) * (i + 0.5) / antal
+        else:
+            cx, cy = x0 + (x1 - x0) * (i + 0.5) / antal, y0 + 50
+        if nr == 1:
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=farg, outline=farg, width=4)
+            d.text((cx, cy), "1", fill="white", font=font, anchor="mm")
+        else:
+            d.ellipse((cx - r, cy - r, cx + r, cy + r), fill="white", outline=farg, width=4)
+            d.text((cx, cy), str(nr), fill="black", font=font, anchor="mm")
+
+
+def kortbild(fil, radfil):
+    """Renderar placeringsritningen och ritar numrerade rutor runt kontakterna, med stiftnummer.
+    Sparar också en förstoring av kontaktraden i radfil."""
     with tempfile.TemporaryDirectory() as tmp:
         bas = os.path.join(tmp, "kort")
         subprocess.run(["pdftoppm", "-r", "600", "-x", "560", "-y", "2350", "-W", "4180", "-H", "2550",
@@ -60,9 +92,12 @@ def kortbild(fil):
     d = ImageDraw.Draw(im)
     try:
         font = ImageFont.truetype(os.path.join(pdfstil.FONT_DIR, "DejaVuSans-Bold.ttf"), 64)
+        liten = ImageFont.truetype(os.path.join(pdfstil.FONT_DIR, "DejaVuSans-Bold.ttf"), 34)
     except OSError:
-        font = ImageFont.load_default()
+        font = liten = ImageFont.load_default()
     for nr, _text, x0, y0, x1, y1, farg in MARKERINGAR:
+        if nr in STIFT:
+            stiftsiffror(d, x0, y0, x1, y1, farg, *STIFT[nr], liten)
         d.rectangle((x0 - 12, y0 - 12, x1 + 12, y1 + 12), outline=farg, width=14)
         r = 52
         cx, cy = (x0 + x1) // 2, y0 - 12 - r - 8
@@ -70,6 +105,7 @@ def kortbild(fil):
             cy = y1 + 12 + r + 8
         d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=farg)
         d.text((cx, cy), str(nr), fill="white", font=font, anchor="mm")
+    im.crop(RAD).save(radfil)
     im = im.resize((im.width // 2, im.height // 2))
     im.save(fil)
 
@@ -78,15 +114,23 @@ def main():
     if not os.path.exists(RITNING):
         sys.exit(f"Hittar inte Upwis ritning: {RITNING}")
     bildfil = os.path.join(pdfstil.BILDER, "_mp101_kort.png")  # genereras, inte i git
-    kortbild(bildfil)
+    radfil = os.path.join(pdfstil.BILDER, "_mp101_rad.png")
+    kortbild(bildfil, radfil)
 
     innehall = [
         h1("Kortet ovanifrån"),
         p("Kortet är nästan inte märkt. Bilden är Upwis placeringsritning med kontakterna "
           "inringade och numrerade. Kontakterna längs underkanten sitter i en rad: från "
-          "matningen till vänster till DI1 längst till höger."),
+          "matningen till vänster till DI1 längst till höger. Kortet ligger som när du tittar "
+          "ner på det med kontaktraden mot dig."),
         pdfstil.bild("_mp101_kort.png", 175,
-                     "Grönt = används av roboten · blått = GPS · rött = matning · grått = ledigt"),
+                     "Grönt = används av roboten · blått = GPS · rött = matning · grått = ledigt. "
+                     "Små siffror = stiftnummer, stift 1 är ifyllt."),
+        h2("Kontaktraden förstorad"),
+        pdfstil.bild("_mp101_rad.png", 175,
+                     "Stift 1 är ifyllt. CAN räknas från matningen, DI åt andra hållet."),
+        varning("CAN och DI räknas åt <b>olika håll</b>. På CAN sitter stift 1 närmast "
+                "matningsplinten. På DI sitter stift 1 längst bort från matningsplinten."),
         tabell([
             ["Nr", "Kontakt", "Används till"],
             ["1", "J6 / J28", "Matning 12 V (7–60 V) från batteriet"],
@@ -109,9 +153,10 @@ def main():
         tabell([
             ["Stift", "Funktion"],
             ["1", "+5 V ut (säkrad), behövs normalt inte"],
-            ["2", "<b>Signal</b>, med 1 kΩ pull-up till 5 V på kortet"],
+            ["2", "<b>Signal</b>, i vila cirka 3,3 V (uppmätt)"],
             ["3", "<b>GND</b>"],
         ], bredder=[20, 155]),
+        tips("Stift 1 sitter i änden <b>längst bort från matningsplinten</b> (till höger i bilden)."),
         punkter([
             "En givare som drar signalen mot jord (NPN/öppen kollektor eller en kontakt, som på det "
             "gamla kortet) kopplas till stift 2 och stift 3.",
@@ -125,12 +170,14 @@ def main():
           "kopplas till den första."),
         tabell([
             ["Stift", "Funktion"],
-            ["1", "Matning ut: 3,3 V eller 5 V beroende på monterad säkring (R137/R138). Mät först."],
+            ["1", "Matning ut: 3,3 V (uppmätt 3,4 V; säkring R137 monterad)"],
             ["2", "<b>Analog in 1 (PA4)</b>: vinkelgivarens signal"],
             ["3", "Analog in 2 (PA5)"],
             ["4", "Analog in 3 (PA6)"],
             ["5", "<b>GND</b>"],
         ], bredder=[20, 155]),
+        tips("Stift 1 sitter i änden <b>längst bort från kontaktraden</b> (överst i bilden), "
+             "stift 5 (GND) närmast kontaktraden."),
         punkter([
             "Behåll vinkelgivarens matning som i dag. Koppla signalen till stift 2 och jord till stift 5.",
             "Inom styrutslaget (±30°) ger givaren cirka 2,1–2,9 V, med god marginal till 5 V.",
@@ -148,6 +195,7 @@ def main():
             ["3", "<b>CANL</b>"],
             ["4", "<b>GND</b>"],
         ], bredder=[20, 155]),
+        tips("Stift 1 sitter i änden <b>närmast matningsplinten</b> (till vänster i bilden)."),
         punkter([
             "Koppla CANH, CANL och GND till VESC:arnas CAN-buss.",
             "Kortet har inbyggd terminering (2 × 60 Ω), så det ska sitta i ena änden av bussen.",
@@ -163,13 +211,14 @@ def main():
             "Antennerna (u-blox ANN-MB) får 3,3 V från kortet via kabeln.",
         ]),
 
-        h1("Hitta stift 1"),
-        p("Stift 1 syns inte i ritningen. Mät med multimeter när kortet är påslaget:"),
+        h1("Kontrollera stift 1"),
+        p("Kortet saknar märkning för stift 1. Riktningen i bilderna är uppmätt på kort 2 "
+          "(2026-10-23). Kontrollera med multimeter på ett nytt kort, mot minus på matningsplinten:"),
         punkter([
-            "<b>DI-kontakterna och CAN:</b> stift 1 har +5 V mot GND. Stiftet i andra änden är GND.",
-            "<b>J30:</b> stift 1 har 3,3 V eller 5 V. Stift 5 i andra änden är GND.",
+            "<b>CAN och DI:</b> stift 1 har +5 V. Stiftet i andra änden är GND (0 V).",
+            "<b>J30:</b> stift 1 har cirka 3,3 V.",
         ], numrerad=False),
-        tips("Märk kontakterna med tejp när du har mätt upp dem, så slipper nästa person göra om det."),
+        tips("Märk stift 1 med en prick av lackpenna, så slipper nästa person mäta."),
     ]
     try:
         bygg(os.path.join(UT, "MP101-kortet - anslutningar.pdf"), "MP101-kortet",
@@ -180,6 +229,7 @@ def main():
              innehall, innehallsforteckning=False)
     finally:
         os.remove(bildfil)
+        os.remove(radfil)
     print("Klar:", os.path.join(UT, "MP101-kortet - anslutningar.pdf"))
 
 
