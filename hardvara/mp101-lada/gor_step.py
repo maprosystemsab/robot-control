@@ -39,7 +39,7 @@ for namn, uttryck in re.findall(r"^([A-Z][A-Z0-9_]*)\s*=\s*([^;]+);", kalla, re.
         pass
 g = type("K", (), k)
 LOCK_SKRUV = [(x, y) for x in (-g.SPEL - g.ANDE_V + 3.5, g.KORT_X + g.SPEL + g.ANDE - 3.5) for y in (12, 83)]
-KX0, KY0 = g.VAGG + g.SPEL + g.ANDE_V, g.VAGG + g.SPEL   # kortets nollpunkt i lådan
+KX0, KY0 = g.VAGG + g.SPEL + g.ANDE_V, g.FRAM_Y   # kortets nollpunkt i lådan
 
 
 def box(x, y, z, dx, dy, dz):
@@ -127,10 +127,8 @@ def text_2d():
     ytor.append(placera(textytor("+", 3.6), 95.6, 0.8, 0, "center"))
     ytor.append(placera(textytor("−", 3.6), 100.2, 0.8, 0, "center"))
     ytor.append(triangel(104.05, 42.8))
-    sma_y = [g.UT_Y * 0.4, g.UT_Y * 0.6]
-    for txt, y in (("GPS1", sma_y[1]), ("GPS2", sma_y[0])):
-        ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5,
-                            y - g.VAGG - g.SPEL, 90, "center"))
+    for txt, y in (("GPS1", g.SMA_KORT_Y[1]), ("GPS2", g.SMA_KORT_Y[0])):
+        ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5, y, 90, "center"))
     ytor.append(placera(textytor("MP101", 5), *((107, 86) if SKARM else (40, 88))))
     ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 2.6 if SKARM else 3), *((107, 79) if SKARM else (40, 82))))
     platt = Part.Compound(ytor)
@@ -142,7 +140,7 @@ def text_2d():
 TOPP_Z = g.BOTTEN_T + 1.2 + g.LOCK_H
 TAK_Z = TOPP_Z - g.TAK
 Z_STOLPE = TAK_Z - 3
-SMA_Y = [g.UT_Y * 0.4, g.UT_Y * 0.6]
+SMA_Y = [y + g.FRAM_Y for y in g.SMA_KORT_Y]
 ORON = [(x, y) for x in (-8, g.UT_X + 8) for y in (g.UT_Y * 0.25, g.UT_Y * 0.75)]
 
 
@@ -154,7 +152,8 @@ def kortsidor(h):
 def botten():
     delar = [rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_T),
              rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_T + 1.2).cut(box(g.VAGG, g.VAGG, 0, g.IN_X, g.IN_Y, 10)),
-             kortsidor(TAK_Z)]
+             kortsidor(TAK_Z),
+             rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_H - 0.2).common(box(0, 0, 0, g.UT_X, g.VAGG, g.BOTTEN_H - 0.2))]
     delar += [cyl(*kort(*h), 0, 8, g.BOTTEN_H) for h in g.HAL]
     delar += [cyl(*kort(*p), 0, 8, Z_STOLPE) for p in LOCK_SKRUV]
     for x, y in ORON:
@@ -165,7 +164,7 @@ def botten():
     hal = [cyl(*kort(*h), 0.8, g.M3_GANG, 20) for h in g.HAL]
     hal += [cyl(*kort(*p), 1.0, g.M3_GANG, 100) for p in LOCK_SKRUV]
     hal += [cyl(x, y, -1, 5.2, 10) for x, y in ORON]
-    hal += [cyl(g.UT_X - g.VAGG - 1, y, g.BOTTEN_H + g.KORT_T + 8, 6.6, g.VAGG + 2, Vector(1, 0, 0)) for y in SMA_Y]
+    hal += [cyl(g.UT_X - g.VAGG - 1, y, g.BOTTEN_H + g.KORT_T + g.SMA_Z, 6.6, g.VAGG + 2, Vector(1, 0, 0)) for y in SMA_Y]
     for h in hal:
         s = s.cut(h)
     return s.removeSplitter()
@@ -185,9 +184,9 @@ def lock(text3d):
         delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen
         delar += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER, 7, g.SK_PCB_UNDER + 0.1) for p in g.SK_KLAMMOR]
     s = fusion(delar)
-    hal = []
+    hal = [box(-1, -1, 0, g.UT_X + 2, g.VAGG + 1.1, g.BOTTEN_H + g.KORT_T + 0.8)]   # framväggen slutar över kortet
     for _n, x0, x1, h, *_ in g.KANT:
-        x, y = kort(x0 - 0.6, -g.VAGG - g.SPEL - 1)
+        x, y = kort(x0 - 0.6, -g.FRAM_Y - 1)
         hal.append(box(x, y, g.BOTTEN_H - 0.5, x1 - x0 + 1.2, g.VAGG + 3, g.KORT_T + h + 1.0))
     for o in g.TOPP:
         x, y = kort(o[0] - 0.8, o[2] - 0.8)

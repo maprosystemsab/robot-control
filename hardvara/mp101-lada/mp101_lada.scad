@@ -30,10 +30,10 @@ HAL = [[4.0, 90.6], [156.0, 90.6], [155.6, 13.4], [85.8, 4.6]];   // M3-hål i k
 H_LOCK_INV = SKARM ? 20 : 16;   // fri höjd under locket (USB-A är högst, 14,4; skärmen tar 10,4)
 H_RJ45 = 11.4;
 H_USB = 14.4;
-H_USBC = 3.4;
+H_USBC = 6.5;           // hålets höjd: kontaktens gjutna hylsa (uttaget självt är 3,4)
 H_PLINT = 7.1;
 H_JST = 5.4;            // JST PH liggande
-H_UNDER = 3;            // frigång under kortet för lödningarna
+H_UNDER = 5;            // frigång under kortet (provat 23/10: 3 mm var för lite)
 M3_GANG = 2.8;          // M3 som gängar sig i plasten
 M3_FRI = 3.4;
 
@@ -47,9 +47,10 @@ TEXT_DJUP = 0.6;        // inlagd text i taket (egen färg)
 FONT = "DejaVu Sans:style=Bold";
 
 IN_X = KORT_X + 2 * SPEL + ANDE + ANDE_V;
-IN_Y = KORT_Y + 2 * SPEL;
+FRAM_Y = 0;             // kortets kontaktkant jäms med lådans utsida (kontakterna i nivå med väggen)
+UT_Y = FRAM_Y + KORT_Y + SPEL + VAGG;
+IN_Y = UT_Y - 2 * VAGG;
 UT_X = IN_X + 2 * VAGG;
-UT_Y = IN_Y + 2 * VAGG;
 BOTTEN_T = 2.4;
 BOTTEN_H = BOTTEN_T + H_UNDER;          // bottenplattans överkant = kortets underkant
 LOCK_H = KORT_T + H_LOCK_INV + TAK;     // lockets väggar står på bottnens kant
@@ -58,13 +59,16 @@ TAK_Z = TOPP_Z - TAK;                   // takets undersida = kortsidornas över
 Z_STOLPE = TAK_Z - 3;                   // pelarna slutar här, locket har en klack ner till dem
 // lockets skruvar i pelare som sitter ihop med kortsidorna (kortets koordinater)
 LOCK_SKRUV = [for (x = [-SPEL - ANDE_V + 3.5, KORT_X + SPEL + ANDE - 3.5], y = [12, 83]) [x, y]];
-SMA_Y = [UT_Y * 0.4, UT_Y * 0.6];       // i lådans koordinater
+// SMA-skotten i kortsidan vid DI1 (kortets y): GPS2 vid X2, GPS1 vid X1, båda fria från PROG-hålet
+SMA_KORT_Y = [25, 72];
+SMA_Y = [for (y = SMA_KORT_Y) y + FRAM_Y];   // i lådans koordinater
+SMA_Z = 10;             // SMA-skottens mitt över kortets ovansida (fritt från knappcellshållaren)
 
 // Kontakter längs kontaktkanten: [namn, x0, x1, höjd, text, stift, stift 1-ände ("h" = hög x)]
 KANT = [
     ["eth",   1.2, 19.0, H_RJ45,  "ETH",       0, ""],
     ["usb",  44.5, 69.7, H_USB,   "USB",       0, ""],
-    ["usbc", 71.7, 81.6, H_USBC,  "USB-C",     0, ""],
+    ["usbc", 71.7, 83.6, H_USBC,  "USB-C",     0, ""],
     ["plint",93.6,102.1, H_PLINT, "12V IN",    0, ""],
     ["can1",104.4,114.5, H_JST,   "CAN1 VESC", 4, "h"],
     ["can2",115.2,125.2, H_JST,   "CAN2",      4, "h"],
@@ -98,7 +102,7 @@ module rundad_lada(x, y, h, r = 3) {
 }
 
 // Kortets nollpunkt i lådans koordinater
-module pa_kortet() { translate([VAGG + SPEL + ANDE_V, VAGG + SPEL, 0]) children(); }
+module pa_kortet() { translate([VAGG + SPEL + ANDE_V, FRAM_Y, 0]) children(); }
 
 // Kortsidornas väggar (ingår i bottnen) och lockets ram (resten)
 module kortsidor(h) {
@@ -121,6 +125,11 @@ module botten() {
                 translate([VAGG, VAGG, 0]) cube([IN_X, IN_Y, 10]);
             }
             kortsidor(TAK_Z);
+            // framkant under kortkanten (lockets framvägg slutar strax ovanför kortet)
+            intersection() {
+                rundad_lada(UT_X, UT_Y, BOTTEN_H - 0.2);
+                cube([UT_X, VAGG, BOTTEN_H - 0.2]);
+            }
             // distanser för kortet och pelare för locket
             pa_kortet() for (h = HAL) translate([h[0], h[1], 0]) cylinder(d = 8, h = BOTTEN_H, $fn = 40);
             pa_kortet() for (p = LOCK_SKRUV) translate([p[0], p[1], 0]) cylinder(d = 8, h = Z_STOLPE, $fn = 40);
@@ -138,7 +147,7 @@ module botten() {
             translate([x, y, -1]) cylinder(d = 5.2, h = 10, $fn = 32);
         // antenner X1/X2 i kortsidan vid DI1 (SMA-skott 6,5 mm)
         for (y = SMA_Y)
-            translate([UT_X - VAGG - 1, y, BOTTEN_H + KORT_T + 8]) rotate([0, 90, 0]) cylinder(d = 6.6, h = VAGG + 2, $fn = 40);
+            translate([UT_X - VAGG - 1, y, BOTTEN_H + KORT_T + SMA_Z]) rotate([0, 90, 0]) cylinder(d = 6.6, h = VAGG + 2, $fn = 40);
     }
 }
 
@@ -152,6 +161,7 @@ module lock_kropp() {
                 translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
                 translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
             }
+            
             if (SKARM) {
                 // list i bakväggen som skärmkortets bakkant vilar på
                 pa_kortet() translate([SK_MITT[0] - 45, KORT_Y + SPEL - 2.4, TAK_Z - SK_PCB_UNDER - 2])
@@ -164,9 +174,11 @@ module lock_kropp() {
             pa_kortet() for (p = LOCK_SKRUV)
                 translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = TOPP_Z - Z_STOLPE - 0.2, $fn = 40);
         }
+        // framväggen slutar 0,8 mm över kortet (kortkanten ligger i väggens plan)
+        translate([-1, -1, 0]) cube([UT_X + 2, VAGG + 1.1, BOTTEN_H + KORT_T + 0.8]);
         // kontakterna i kanten: öppning från kortets ovansida och uppåt, öppen nedåt
         pa_kortet() for (k = KANT)
-            translate([k[1] - 0.6, -VAGG - SPEL - 1, BOTTEN_H - 0.5])
+            translate([k[1] - 0.6, -FRAM_Y - 1, BOTTEN_H - 0.5])
                 cube([k[2] - k[1] + 1.2, VAGG + 3, KORT_T + k[3] + 1.0]);
         // tak-öppningar
         pa_kortet() for (o = TOPP)
@@ -229,8 +241,8 @@ module text_kropp(luft = 0) {
         // J30 stift 1 sitter närmast kontaktraden
         translate([104.05, 42.8, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
         // SMA-hålen i kortänden: GPS1 på samma sida som X1, GPS2 som X2
-        for (g = [["GPS1", SMA_Y[1]], ["GPS2", SMA_Y[0]]])
-            translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1] - VAGG - SPEL, 0]) rotate(90)
+        for (g = [["GPS1", SMA_KORT_Y[1]], ["GPS2", SMA_KORT_Y[0]]])
+            translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1], 0]) rotate(90)
                 text(g[0], size = 2.8, font = FONT, halign = "center");
         translate(SKARM ? [107, 86] : [40, 88]) text("MP101", size = 5, font = FONT);
         translate(SKARM ? [107, 79] : [40, 82]) text("▲ = stift 1 (+5 V)", size = SKARM ? 2.6 : 3, font = FONT);
