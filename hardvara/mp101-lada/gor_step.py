@@ -240,6 +240,9 @@ def lock(text3d):
               box(g.UT_X - g.VAGG - 0.3, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre)):
         skal = skal.cut(b)
     delar = [skal] + [cyl(*kort(*p), Z_STOLPE + 0.2, 8, TOPP_Z - Z_STOLPE - 0.2) for p in LOCK_SKRUV]
+    for x0, x1 in g.SKYDD:   # utbuktningen framför kortkanten
+        x, y = kort(x0, -g.FRAM_Y - g.SKYDD_D)
+        delar.append(box(x, y, 0, x1 - x0, g.SKYDD_D + 0.01, TOPP_Z))
     if SKARM:
         x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
         delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen

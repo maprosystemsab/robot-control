@@ -78,6 +78,11 @@ KANT = [
     ["di1", 151.2,159.2, H_JST,   "DI1",       3, "h"],
 ];
 
+// Utbuktning på locket framför kortkanten mellan Ethernet och USB (som i Upwis låda): skyddar
+// kortkanten där. [x0, x1] i kortets koordinater, sticker ut SKYDD_D framför lådans front.
+SKYDD = [[20.1, 43.4]];
+SKYDD_D = 2;
+
 // Öppningar i taket: [x0, x1, y0, y1, text, textläge [x, y], textvinkel]
 TOPP = [
     [101.8, 106.3, 46.1, 58.0, "VINKEL J30", [98.6, 52], 90],
@@ -178,6 +183,9 @@ module lock_kropp() {
                 pa_kortet() for (p = SK_KLAMMOR)
                     translate([p[0], p[1], TAK_Z - SK_PCB_UNDER]) cylinder(d = 7, h = SK_PCB_UNDER + 0.1, $fn = 40);
             }
+            // utbuktningen framför kortkanten, från bottnens underkant till lockets ovansida
+            pa_kortet() for (sk = SKYDD)
+                translate([sk[0], -FRAM_Y - SKYDD_D, 0]) cube([sk[1] - sk[0], SKYDD_D + 0.01, TOPP_Z]);
             // klackar ner mot bottnens pelare
             pa_kortet() for (p = LOCK_SKRUV)
                 translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = TOPP_Z - Z_STOLPE - 0.2, $fn = 40);
