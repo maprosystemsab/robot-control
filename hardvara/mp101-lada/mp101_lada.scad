@@ -3,8 +3,9 @@
 // Koordinater i mm från kortets hörn: x längs långsidan med kontaktraden (0 = Ethernet-änden),
 // y in från kontaktkanten. Lägen uppmätta ur Upwis placeringsritning (MP101_323_TOP_CAM).
 // Höjderna uppmätta på kort 2 (2026-10-23), från kortets underkant minus kortets tjocklek.
-// Kortet skruvas i bottnen med 4 × M3×6 uppifrån. Locket skruvas i bottnen med 4 × M3×16 uppifrån,
-// i pelare vid kortets kortsidor. Skruvarna gängar sig i plasten (hål 2,8 mm).
+// Bottnen har båda kortsidorna (SMA-skotten sitter i den ena), locket är tak + långsidor.
+// Montering: kortet i bottnen (4 × M3×6), SMA-kablarna, sist locket (4 × M3×12 i pelarna vid
+// kortsidorna). Allt skruvas uppifrån och gängar sig i plasten (hål 2,8 mm).
 //
 // Exportera tre delar (del = "botten", "lock", "text"):
 //   openscad -D 'del="botten"' -o botten.stl mp101_lada.scad
@@ -44,8 +45,12 @@ UT_Y = IN_Y + 2 * VAGG;
 BOTTEN_T = 2.4;
 BOTTEN_H = BOTTEN_T + H_UNDER;          // bottenplattans överkant = kortets underkant
 LOCK_H = KORT_T + H_LOCK_INV + TAK;     // lockets väggar står på bottnens kant
-Z_STOLPE = 9;                           // där bottnens pelare möter lockets
-LOCK_SKRUV = [for (x = [-SPEL - ANDE / 2, KORT_X + SPEL + ANDE / 2], y = [12, 83]) [x, y]];
+TOPP_Z = BOTTEN_T + 1.2 + LOCK_H;       // lockets ovansida
+TAK_Z = TOPP_Z - TAK;                   // takets undersida = kortsidornas överkant
+Z_STOLPE = TAK_Z - 3;                   // pelarna slutar här, locket har en klack ner till dem
+// lockets skruvar i pelare som sitter ihop med kortsidorna (kortets koordinater)
+LOCK_SKRUV = [for (x = [-SPEL - ANDE + 3.5, KORT_X + SPEL + ANDE - 3.5], y = [12, 83]) [x, y]];
+SMA_Y = [UT_Y * 0.4, UT_Y * 0.6];       // i lådans koordinater
 
 // Kontakter längs kontaktkanten: [namn, x0, x1, höjd, text, stift, stift 1-ände ("h" = hög x)]
 KANT = [
@@ -78,15 +83,27 @@ module rundad_lada(x, y, h, r = 3) {
 // Kortets nollpunkt i lådans koordinater
 module pa_kortet() { translate([VAGG + SPEL + ANDE, VAGG + SPEL, 0]) children(); }
 
+// Kortsidornas väggar (ingår i bottnen) och lockets ram (resten)
+module kortsidor(h) {
+    intersection() {
+        rundad_lada(UT_X, UT_Y, h);
+        union() {
+            cube([VAGG, UT_Y, h]);
+            translate([UT_X - VAGG, 0, 0]) cube([VAGG, UT_Y, h]);
+        }
+    }
+}
+
 module botten() {
     difference() {
         union() {
             rundad_lada(UT_X, UT_Y, BOTTEN_T);
-            // låg kant som locket står på
+            // låg kant längs långsidorna som locket står på
             difference() {
                 rundad_lada(UT_X, UT_Y, BOTTEN_T + 1.2);
                 translate([VAGG, VAGG, 0]) cube([IN_X, IN_Y, 10]);
             }
+            kortsidor(TAK_Z);
             // distanser för kortet och pelare för locket
             pa_kortet() for (h = HAL) translate([h[0], h[1], 0]) cylinder(d = 8, h = BOTTEN_H, $fn = 40);
             pa_kortet() for (p = LOCK_SKRUV) translate([p[0], p[1], 0]) cylinder(d = 8, h = Z_STOLPE, $fn = 40);
@@ -99,22 +116,28 @@ module botten() {
         }
         // blinda skruvhål, uppifrån
         pa_kortet() for (h = HAL) translate([h[0], h[1], 0.8]) cylinder(d = M3_GANG, h = 20, $fn = 32);
-        pa_kortet() for (p = LOCK_SKRUV) translate([p[0], p[1], 1.0]) cylinder(d = M3_GANG, h = 20, $fn = 32);
+        pa_kortet() for (p = LOCK_SKRUV) translate([p[0], p[1], 1.0]) cylinder(d = M3_GANG, h = 100, $fn = 32);
         for (x = [-8, UT_X + 8], y = [UT_Y * 0.25, UT_Y * 0.75])
             translate([x, y, -1]) cylinder(d = 5.2, h = 10, $fn = 32);
+        // antenner X1/X2 i kortsidan vid DI1 (SMA-skott 6,5 mm)
+        for (y = SMA_Y)
+            translate([UT_X - VAGG - 1, y, BOTTEN_H + KORT_T + 8]) rotate([0, 90, 0]) cylinder(d = 6.6, h = VAGG + 2, $fn = 40);
     }
 }
 
 module lock_kropp() {
-    topp = BOTTEN_T + 1.2 + LOCK_H;
     difference() {
         union() {
+            // tak och långsidor; kortsidorna hör till bottnen (0,3 mm luft mot dem)
             translate([0, 0, BOTTEN_T + 1.2]) difference() {
                 rundad_lada(UT_X, UT_Y, LOCK_H);
                 translate([VAGG, VAGG, -1]) cube([IN_X, IN_Y, LOCK_H - TAK + 1]);
+                translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
+                translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
             }
+            // klackar ner mot bottnens pelare
             pa_kortet() for (p = LOCK_SKRUV)
-                translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = topp - Z_STOLPE - 0.2, $fn = 40);
+                translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = TOPP_Z - Z_STOLPE - 0.2, $fn = 40);
         }
         // kontakterna i kanten: öppning från kortets ovansida och uppåt, öppen nedåt
         pa_kortet() for (k = KANT)
@@ -123,16 +146,13 @@ module lock_kropp() {
         // tak-öppningar
         pa_kortet() for (o = TOPP)
             translate([o[0] - 0.8, o[2] - 0.8, 0]) cube([o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100]);
-        // antenner X1/X2 på kortänden (SMA-skott 6,5 mm)
-        for (y = [UT_Y * 0.4, UT_Y * 0.6])
-            translate([UT_X - VAGG - 1, y, BOTTEN_H + KORT_T + 8]) rotate([0, 90, 0]) cylinder(d = 6.6, h = VAGG + 2, $fn = 40);
         // ventilation över CM5
         pa_kortet() for (y = [CM5[2] + 4 : 5 : CM5[3] - 4])
             translate([CM5[0] + 6, y, 0]) cube([CM5[1] - CM5[0] - 12, 2.2, 100]);
         // lockets skruvar: fritt hål och försänkt skalle
         pa_kortet() for (p = LOCK_SKRUV) {
             translate([p[0], p[1], 0]) cylinder(d = M3_FRI, h = 100, $fn = 32);
-            translate([p[0], p[1], topp - 3]) cylinder(d = 6.4, h = 10, $fn = 40);
+            translate([p[0], p[1], TOPP_Z - 3]) cylinder(d = 6.4, h = 10, $fn = 40);
         }
         text_kropp(1);
     }
@@ -164,8 +184,8 @@ module text_kropp(luft = 0) {
         // J30 stift 1 sitter närmast kontaktraden
         translate([104.05, 44.0, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
         // SMA-hålen i kortänden: GPS1 på samma sida som X1, GPS2 som X2
-        for (g = [["GPS1", UT_Y * 0.6], ["GPS2", UT_Y * 0.4]])
-            translate([KORT_X + SPEL + ANDE / 2 + 1.4, g[1] - VAGG - SPEL, 0]) rotate(90)
+        for (g = [["GPS1", SMA_Y[1]], ["GPS2", SMA_Y[0]]])
+            translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1] - VAGG - SPEL, 0]) rotate(90)
                 text(g[0], size = 2.8, font = FONT, halign = "center");
         translate([40, 88, 0]) text("MP101", size = 5, font = FONT);
         translate([40, 82, 0]) text("▲ = stift 1 (+5 V)", size = 3, font = FONT);
