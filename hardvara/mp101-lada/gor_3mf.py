@@ -185,10 +185,10 @@ def main():
         z.writestr("3D/Objects/object_1.model", objektfil((1, lock_c), (2, text_c)))
         z.writestr("3D/Objects/object_2.model", objektfil((3, botten_c)))
         z.writestr("Metadata/model_settings.config", installningar)
-        # Projektinställningar för P2S med två filament (svart lock, vit text); mall från en
+        # Projektinställningar för P2S med två filament (orange låda, svart text); mall från en
         # tvåfärgsfil sparad i Bambu Studio 2.7.
         projekt = json.load(open(os.path.join(HAR, "bambu_p2s_projekt.json")))
-        projekt["filament_colour"] = ["#1A1A1A", "#FFFFFF"]
+        projekt["filament_colour"] = ["#FF6A13", "#000000"]
         z.writestr("Metadata/project_settings.config", json.dumps(projekt, indent=4))
     print("Klar:", UT)
 

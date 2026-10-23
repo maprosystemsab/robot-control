@@ -2,11 +2,13 @@
 //
 // Koordinater i mm från kortets hörn: x längs långsidan med kontaktraden (0 = Ethernet-änden),
 // y in från kontaktkanten. Lägen uppmätta ur Upwis placeringsritning (MP101_323_TOP_CAM).
-// Höjderna (H_*) är INTE uppmätta än: mät kortet och rätta dem innan utskrift.
+// Höjderna uppmätta på kort 2 (2026-10-23), från kortets underkant minus kortets tjocklek.
+// Kortet skruvas i bottnen med 4 × M3×6 uppifrån. Locket skruvas i bottnen med 4 × M3×16 uppifrån,
+// i pelare vid kortets kortsidor. Skruvarna gängar sig i plasten (hål 2,8 mm).
 //
 // Exportera tre delar (del = "botten", "lock", "text"):
 //   openscad -D 'del="botten"' -o botten.stl mp101_lada.scad
-// I Bambu Studio: öppna lock.stl, högerklicka > Lägg till del > text.stl, ge texten egen färg.
+// Färdig Bambu-fil med texten i egen färg: python3 gor_3mf.py
 
 del = "alla";           // "botten", "lock", "text" eller "alla" (förhandsvisning)
 
@@ -16,29 +18,34 @@ KORT_Y = 95;
 KORT_T = 1.6;
 HAL = [[4.0, 90.6], [156.0, 90.6], [155.6, 13.4], [85.8, 4.6]];   // M3-hål i kortet
 
-// ---- Höjder över kortets ovansida (GISSADE, mät!) ----
-H_LOCK_INV = 17;        // fri höjd under locket (högsta komponenten + marginal)
-H_RJ45 = 13.6;
-H_USB = 15.0;
-H_USBC = 3.6;
-H_PLINT = 10.5;
-H_JST = 6.2;            // JST PH liggande
-H_UNDER = 5;            // avstånd under kortet (stifttenar + luft)
+// ---- Höjder över kortets ovansida (uppmätta) ----
+H_LOCK_INV = 16;        // fri höjd under locket (USB-A är högst, 14,4)
+H_RJ45 = 11.4;
+H_USB = 14.4;
+H_USBC = 3.4;
+H_PLINT = 7.1;
+H_JST = 5.4;            // JST PH liggande
+H_UNDER = 3;            // frigång under kortet för lödningarna
+M3_GANG = 2.8;          // M3 som gängar sig i plasten
+M3_FRI = 3.4;
 
 // ---- Låda ----
 VAGG = 2.2;
 TAK = 2.0;
 SPEL = 0.6;             // luft runt kortet
+ANDE = 9;               // extra plats i varje kortände för lockets skruvar
 TEXT_DJUP = 0.6;        // inlagd text i taket (egen färg)
 FONT = "DejaVu Sans:style=Bold";
 
-IN_X = KORT_X + 2 * SPEL;
+IN_X = KORT_X + 2 * SPEL + 2 * ANDE;
 IN_Y = KORT_Y + 2 * SPEL;
 UT_X = IN_X + 2 * VAGG;
 UT_Y = IN_Y + 2 * VAGG;
 BOTTEN_T = 2.4;
 BOTTEN_H = BOTTEN_T + H_UNDER;          // bottenplattans överkant = kortets underkant
 LOCK_H = KORT_T + H_LOCK_INV + TAK;     // lockets väggar står på bottnens kant
+Z_STOLPE = 9;                           // där bottnens pelare möter lockets
+LOCK_SKRUV = [for (x = [-SPEL - ANDE / 2, KORT_X + SPEL + ANDE / 2], y = [12, 83]) [x, y]];
 
 // Kontakter längs kontaktkanten: [namn, x0, x1, höjd, text, stift, stift 1-ände ("h" = hög x)]
 KANT = [
@@ -69,7 +76,7 @@ module rundad_lada(x, y, h, r = 3) {
 }
 
 // Kortets nollpunkt i lådans koordinater
-module pa_kortet() { translate([VAGG + SPEL, VAGG + SPEL, 0]) children(); }
+module pa_kortet() { translate([VAGG + SPEL + ANDE, VAGG + SPEL, 0]) children(); }
 
 module botten() {
     difference() {
@@ -80,25 +87,34 @@ module botten() {
                 rundad_lada(UT_X, UT_Y, BOTTEN_T + 1.2);
                 translate([VAGG, VAGG, 0]) cube([IN_X, IN_Y, 10]);
             }
-            pa_kortet() for (h = HAL) translate([h[0], h[1], 0]) cylinder(d = 6.5, h = BOTTEN_H, $fn = 40);
-            // fästöron mot roboten
-            for (x = [UT_X * 0.25, UT_X * 0.75], y = [-8, UT_Y + 8])
+            // distanser för kortet och pelare för locket
+            pa_kortet() for (h = HAL) translate([h[0], h[1], 0]) cylinder(d = 8, h = BOTTEN_H, $fn = 40);
+            pa_kortet() for (p = LOCK_SKRUV) translate([p[0], p[1], 0]) cylinder(d = 8, h = Z_STOLPE, $fn = 40);
+            // fästöron mot roboten på kortsidorna
+            for (x = [-8, UT_X + 8], y = [UT_Y * 0.25, UT_Y * 0.75])
                 hull() {
                     translate([x, y, 0]) cylinder(d = 14, h = BOTTEN_T, $fn = 40);
-                    translate([x - 7, y < 0 ? 0 : UT_Y - 1, 0]) cube([14, 1, BOTTEN_T]);
+                    translate([x < 0 ? 0 : UT_X - 1, y - 7, 0]) cube([1, 14, BOTTEN_T]);
                 }
         }
-        pa_kortet() for (h = HAL) translate([h[0], h[1], 1]) cylinder(d = 4.2, h = 20, $fn = 32); // insats M3
-        for (x = [UT_X * 0.25, UT_X * 0.75], y = [-8, UT_Y + 8])
+        // blinda skruvhål, uppifrån
+        pa_kortet() for (h = HAL) translate([h[0], h[1], 0.8]) cylinder(d = M3_GANG, h = 20, $fn = 32);
+        pa_kortet() for (p = LOCK_SKRUV) translate([p[0], p[1], 1.0]) cylinder(d = M3_GANG, h = 20, $fn = 32);
+        for (x = [-8, UT_X + 8], y = [UT_Y * 0.25, UT_Y * 0.75])
             translate([x, y, -1]) cylinder(d = 5.2, h = 10, $fn = 32);
     }
 }
 
 module lock_kropp() {
+    topp = BOTTEN_T + 1.2 + LOCK_H;
     difference() {
-        translate([0, 0, BOTTEN_T + 1.2]) difference() {
-            rundad_lada(UT_X, UT_Y, LOCK_H);
-            translate([VAGG, VAGG, -1]) cube([IN_X, IN_Y, LOCK_H - TAK + 1]);
+        union() {
+            translate([0, 0, BOTTEN_T + 1.2]) difference() {
+                rundad_lada(UT_X, UT_Y, LOCK_H);
+                translate([VAGG, VAGG, -1]) cube([IN_X, IN_Y, LOCK_H - TAK + 1]);
+            }
+            pa_kortet() for (p = LOCK_SKRUV)
+                translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = topp - Z_STOLPE - 0.2, $fn = 40);
         }
         // kontakterna i kanten: öppning från kortets ovansida och uppåt, öppen nedåt
         pa_kortet() for (k = KANT)
@@ -108,21 +124,18 @@ module lock_kropp() {
         pa_kortet() for (o = TOPP)
             translate([o[0] - 0.8, o[2] - 0.8, 0]) cube([o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100]);
         // antenner X1/X2 på kortänden (SMA-skott 6,5 mm)
-        for (y = [UT_Y * 0.3, UT_Y * 0.7])
+        for (y = [UT_Y * 0.4, UT_Y * 0.6])
             translate([UT_X - VAGG - 1, y, BOTTEN_H + KORT_T + 8]) rotate([0, 90, 0]) cylinder(d = 6.6, h = VAGG + 2, $fn = 40);
         // ventilation över CM5
         pa_kortet() for (y = [CM5[2] + 4 : 5 : CM5[3] - 4])
             translate([CM5[0] + 6, y, 0]) cube([CM5[1] - CM5[0] - 12, 2.2, 100]);
-        // skruvhål M3 genom locket ner i bottnens insatser
-        pa_kortet() for (h = HAL) translate([h[0], h[1], 0]) cylinder(d = 3.4, h = 100, $fn = 32);
+        // lockets skruvar: fritt hål och försänkt skalle
+        pa_kortet() for (p = LOCK_SKRUV) {
+            translate([p[0], p[1], 0]) cylinder(d = M3_FRI, h = 100, $fn = 32);
+            translate([p[0], p[1], topp - 3]) cylinder(d = 6.4, h = 10, $fn = 40);
+        }
         text_kropp(1);
     }
-    // pelare som trycker ner kortet vid hålen
-    pa_kortet() for (h = HAL)
-        difference() {
-            translate([h[0], h[1], BOTTEN_H + KORT_T]) cylinder(d = 6.5, h = H_LOCK_INV + 0.1, $fn = 40);
-            translate([h[0], h[1], 0]) cylinder(d = 3.4, h = 100, $fn = 32);
-        }
 }
 
 // Texten: tunna kroppar i takets ovansida. luft = 1 ger ursparningen (lite djupare).
@@ -132,7 +145,7 @@ module text_kropp(luft = 0) {
         for (k = KANT) {
             mitt = (k[1] + k[2]) / 2;
             // namnet stående, läses från kontaktkanten och inåt
-            translate([mitt + 1.6, 3, 0]) rotate(90) text(k[4], size = 3.2, font = FONT, valign = "baseline");
+            translate([mitt + 1.6, k[0] == "plint" ? 5.5 : 3, 0]) rotate(90) text(k[4], size = 3.2, font = FONT, valign = "baseline");
             // stift: triangel vid stift 1 och siffror
             if (k[5] > 0) {
                 steg = 2.0;
@@ -145,8 +158,15 @@ module text_kropp(luft = 0) {
         }
         for (o = TOPP) if (o[4] != "")
             translate(o[5]) rotate(o[6]) text(o[4], size = 2.8, font = FONT, halign = "center", valign = "center");
+        // plinten: + närmast USB-C
+        translate([95.6, 0.8, 0]) text("+", size = 3.6, font = FONT, halign = "center");
+        translate([100.2, 0.8, 0]) text("−", size = 3.6, font = FONT, halign = "center");
         // J30 stift 1 sitter närmast kontaktraden
         translate([104.05, 44.0, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
+        // SMA-hålen i kortänden: GPS1 på samma sida som X1, GPS2 som X2
+        for (g = [["GPS1", UT_Y * 0.6], ["GPS2", UT_Y * 0.4]])
+            translate([KORT_X + SPEL + ANDE / 2 + 1.4, g[1] - VAGG - SPEL, 0]) rotate(90)
+                text(g[0], size = 2.8, font = FONT, halign = "center");
         translate([40, 88, 0]) text("MP101", size = 5, font = FONT);
         translate([40, 82, 0]) text("▲ = stift 1 (+5 V)", size = 3, font = FONT);
     }
