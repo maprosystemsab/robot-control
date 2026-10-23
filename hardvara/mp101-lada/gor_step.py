@@ -110,12 +110,17 @@ def text_2d():
     ytor = []
     for namn, x0, x1, _h, txt, stift, ande in g.KANT:
         mitt = (x0 + x1) / 2
-        ytor.append(placera(textytor(txt, 3.2), mitt + 1.6, 5.5 if namn == "plint" else 3, 90))
+        can = namn in ("can1", "can2")
+        ytor.append(placera(textytor(txt, 3.8 if can else 3.2), mitt + (1.9 if can else 1.6),
+                            5.5 if namn == "plint" else 3.4 if can else 3, 90))
         if stift > 0:
             for i in range(stift):
                 nr = stift - i if ande == "h" else i + 1
-                if nr == 1:
-                    ytor.append(triangel(mitt + (i - (stift - 1) / 2) * 2.0, 0.2))
+                px = mitt + (i - (stift - 1) / 2) * 2.0
+                if can and nr in (2, 3):
+                    ytor.append(placera(textytor("H" if nr == 2 else "L", 2.2), px, 0.3, 0, "center"))
+                elif not can and nr == 1:
+                    ytor.append(triangel(px, 0.2))
     for o in g.TOPP:
         if o[4]:
             ytor.append(placera(textytor(o[4], 2.8), o[5][0], o[5][1], o[6], "center", "center"))

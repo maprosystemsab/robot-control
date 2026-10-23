@@ -205,15 +205,19 @@ module text_kropp(luft = 0) {
     translate([0, 0, z - luft * 0.01]) linear_extrude(TEXT_DJUP + luft) pa_kortet() {
         for (k = KANT) {
             mitt = (k[1] + k[2]) / 2;
-            // namnet stående, läses från kontaktkanten och inåt
-            translate([mitt + 1.6, k[0] == "plint" ? 5.5 : 3, 0]) rotate(90) text(k[4], size = 3.2, font = FONT, valign = "baseline");
-            // stift: triangel vid stift 1 och siffror
+            can = k[0] == "can1" || k[0] == "can2";
+            // namnet stående, läses från kontaktkanten och inåt (CAN större)
+            translate([mitt + (can ? 1.9 : 1.6), k[0] == "plint" ? 5.5 : can ? 3.4 : 3, 0]) rotate(90)
+                text(k[4], size = can ? 3.8 : 3.2, font = FONT, valign = "baseline");
+            // stift: CAN får H och L vid CANH (stift 2) och CANL (stift 3), övriga en triangel vid stift 1
             if (k[5] > 0) {
                 steg = 2.0;
                 for (i = [0 : k[5] - 1]) {
                     nr = k[6] == "h" ? k[5] - i : i + 1;
                     px = mitt + (i - (k[5] - 1) / 2) * steg;
-                    if (nr == 1) translate([px, 0.2, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
+                    if (can && (nr == 2 || nr == 3))
+                        translate([px, 0.3, 0]) text(nr == 2 ? "H" : "L", size = 2.2, font = FONT, halign = "center");
+                    if (!can && nr == 1) translate([px, 0.2, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
                 }
             }
         }
