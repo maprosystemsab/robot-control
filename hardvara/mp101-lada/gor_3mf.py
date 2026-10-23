@@ -214,6 +214,16 @@ def main():
         # tvåfärgsfil sparad i Bambu Studio 2.7.
         projekt = json.load(open(os.path.join(HAR, "bambu_p2s_projekt.json")))
         projekt["filament_colour"] = ["#FF6A13", "#000000"]
+        # Skarp text (den skrivs i de första lagren, mot plattan): tunt, smalt och långsamt
+        # första lager, och mer rensning så att svart inte stänker in i orange.
+        projekt["initial_layer_print_height"] = "0.16"
+        projekt["initial_layer_line_width"] = "0.42"
+        projekt["initial_layer_speed"] = ["30", "30"]
+        projekt["elefant_foot_compensation"] = "0.15"
+        projekt["flush_multiplier"] = ["1.3"]
+        andrade = "initial_layer_print_height;initial_layer_line_width;initial_layer_speed"
+        skillnad = projekt["different_settings_to_system"]
+        skillnad[0] = ";".join(sorted(set(filter(None, skillnad[0].split(";") + andrade.split(";")))))
         z.writestr("Metadata/project_settings.config", json.dumps(projekt, indent=4))
     print("Klar:", UT)
 

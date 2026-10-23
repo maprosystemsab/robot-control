@@ -43,7 +43,7 @@ TAK = 2.0;
 SPEL = 0.6;             // luft runt kortet
 ANDE = 9;               // extra plats i varje kortände för lockets skruvar
 ANDE_V = SKARM ? ANDE + 7 : ANDE;   // Ethernet-änden: med skärm ryms den mellan lockets skruvar
-TEXT_DJUP = 0.6;        // inlagd text i taket (egen färg)
+TEXT_DJUP = 0.48;       // inlagd text i taket (egen färg): 3 hela lager à 0,16 mm
 FONT = "DejaVu Sans:style=Bold";
 
 IN_X = KORT_X + 2 * SPEL + ANDE + ANDE_V;
