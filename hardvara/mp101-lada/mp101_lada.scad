@@ -79,8 +79,8 @@ KANT = [
 ];
 
 // Utbuktning på locket framför kortkanten mellan Ethernet och USB (som i Upwis låda): skyddar
-// kortkanten där. [x0, x1] i kortets koordinater, sticker ut SKYDD_D framför lådans front.
-SKYDD = [[20.1, 43.4]];
+// kortkanten där; även mellan USB-C och matningsplinten. [x0, x1] i kortets koordinater, sticker ut SKYDD_D framför lådans front.
+SKYDD = [[20.1, 43.4], [84.7, 91.5]];   // ETH–USB, USB-C–matningsplint
 SKYDD_D = 2;
 
 // Öppningar i taket: [x0, x1, y0, y1, text, textläge [x, y], textvinkel]
