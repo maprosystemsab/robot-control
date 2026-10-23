@@ -50,7 +50,7 @@ MARKERINGAR = [
 ]
 
 # Stiftnumrering, uppmätt på kort 2 (2026-10-23): kontaktnummer -> (antal stift, var stift 1 sitter).
-# CAN räknas från matningsplinten, DI åt andra hållet, J30 från änden längst från kontaktraden.
+# CAN räknas från matningsplinten, DI åt andra hållet, J30 från änden närmast kontaktraden.
 STIFT = {
     2: (4, "vanster"),
     3: (4, "vanster"),
@@ -58,7 +58,7 @@ STIFT = {
     5: (3, "hoger"),
     6: (3, "hoger"),
     7: (3, "hoger"),
-    8: (5, "uppe"),
+    8: (5, "nere"),
 }
 # Förstoringen av kontaktraden (samma koordinater som MARKERINGAR)
 RAD = (2380, 2050, 4180, 2550)
@@ -68,8 +68,8 @@ def stiftsiffror(d, x0, y0, x1, y1, farg, antal, ettan, font):
     """Ritar stiftnumren i en kontakt. Stift 1 fylls med kontaktens färg."""
     r = 27
     for i in range(antal):
-        nr = i + 1 if ettan in ("vanster", "uppe") else antal - i
-        if ettan == "uppe":
+        nr = i + 1 if ettan == "vanster" else antal - i
+        if ettan == "nere":
             cx, cy = x0 - 12 - r - 10, y0 + (y1 - y0) * (i + 0.5) / antal
         else:
             cx, cy = x0 + (x1 - x0) * (i + 0.5) / antal, y0 + 50
@@ -153,7 +153,7 @@ def main():
         tabell([
             ["Stift", "Funktion"],
             ["1", "+5 V ut (säkrad), behövs normalt inte"],
-            ["2", "<b>Signal</b>, i vila cirka 3,3 V (uppmätt)"],
+            ["2", "<b>Signal</b> (ingång)"],
             ["3", "<b>GND</b>"],
         ], bredder=[20, 155]),
         tips("Stift 1 sitter i änden <b>längst bort från matningsplinten</b> (till höger i bilden)."),
@@ -170,14 +170,14 @@ def main():
           "kopplas till den första."),
         tabell([
             ["Stift", "Funktion"],
-            ["1", "Matning ut: 3,3 V (uppmätt 3,4 V; säkring R137 monterad)"],
+            ["1", "Matning ut: 5 V (uppmätt; säkring R138 monterad)"],
             ["2", "<b>Analog in 1 (PA4)</b>: vinkelgivarens signal"],
             ["3", "Analog in 2 (PA5)"],
             ["4", "Analog in 3 (PA6)"],
             ["5", "<b>GND</b>"],
         ], bredder=[20, 155]),
-        tips("Stift 1 sitter i änden <b>längst bort från kontaktraden</b> (överst i bilden), "
-             "stift 5 (GND) närmast kontaktraden."),
+        tips("Stift 1 (5 V) sitter i änden <b>närmast kontaktraden</b> (nederst i bilden), "
+             "stift 5 (GND) längst bort."),
         punkter([
             "Behåll vinkelgivarens matning som i dag. Koppla signalen till stift 2 och jord till stift 5.",
             "Inom styrutslaget (±30°) ger givaren cirka 2,1–2,9 V, med god marginal till 5 V.",
@@ -216,7 +216,7 @@ def main():
           "(2026-10-23). Kontrollera med multimeter på ett nytt kort, mot minus på matningsplinten:"),
         punkter([
             "<b>CAN och DI:</b> stift 1 har +5 V. Stiftet i andra änden är GND (0 V).",
-            "<b>J30:</b> stift 1 har cirka 3,3 V.",
+            "<b>J30:</b> stift 1 har +5 V, de andra cirka 0 V.",
         ], numrerad=False),
         tips("Märk stift 1 med en prick av lackpenna, så slipper nästa person mäta."),
     ]
