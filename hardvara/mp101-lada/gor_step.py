@@ -6,7 +6,8 @@
 
 Måtten läses ur mp101_lada.scad, så ändringar görs bara där. Geometrin här ska
 spegla modulerna botten(), lock_kropp() och text_kropp() i .scad-filen.
-Tre kroppar i monterat läge: botten, lock och text (texten ligger infälld i locket).
+Kroppar i monterat läge: botten, lock, text och loggans streck (infällda i locket), plus
+skärmklämmorna i skärmvarianten.
 """
 
 import os
@@ -105,9 +106,10 @@ def ytor_med_hal(slingor):
     return form
 
 
-def logga_2d():
-    """Mapro-loggan ur mapro_logga.dxf (LINE-segment från OpenSCAD), skalad, förtjockad och placerad."""
-    data = open(os.path.join(HAR, g.LOGGA_FIL), encoding="utf-8").read().split("\n")
+def logga_2d(fil):
+    """Mapro-loggan (eller dess streck) ur en DXF med LINE-segment från OpenSCAD, skalad, förtjockad
+    och placerad."""
+    data = open(os.path.join(HAR, fil), encoding="utf-8").read().split("\n")
     par = [(data[i].strip(), data[i + 1].strip()) for i in range(0, len(data) - 1, 2)]
     seg, cur = [], None
     for kod, varde in par:
@@ -186,12 +188,10 @@ def text_2d():
     for txt, y in (("GPS1", g.SMA_KORT_Y[1]), ("GPS2", g.SMA_KORT_Y[0])):
         ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5, y, 90, "center"))
     if SKARM:
-        ytor.append(placera(textytor("MP101", 5), 131, 66, 90))
-        ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 2.6), 138, 56, 90))
+        ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 2.6), 131, 56, 90))
     else:
-        ytor.append(placera(textytor("MP101", 5), 40, 88))
-        ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 3), 40, 82))
-    ytor += logga_2d().Faces
+        ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 3), 40, 84))
+    ytor += logga_2d(g.LOGGA_FIL).Faces
     platt = Part.Compound(ytor)
     platt.translate(Vector(KX0, KY0, 0))
     return platt
@@ -281,13 +281,21 @@ def lock(text3d):
     return s.removeSplitter()
 
 
+def inlagg(platt):
+    kropp = Part.Compound([f.extrude(Vector(0, 0, g.TEXT_DJUP)) for f in platt.Faces])
+    kropp.translate(Vector(0, 0, TOPP_Z - g.TEXT_DJUP))
+    return kropp
+
+
 def main():
-    platt = text_2d()
-    text3d = Part.Compound([f.extrude(Vector(0, 0, g.TEXT_DJUP)) for f in platt.Faces])
-    text3d.translate(Vector(0, 0, TOPP_Z - g.TEXT_DJUP))
+    text3d = inlagg(text_2d())
+    streck = logga_2d(g.LOGGA_STRECK)
+    streck.translate(Vector(KX0, KY0, 0))
+    streck3d = inlagg(streck)
     dok = FreeCAD.newDocument("MP101_lada")
     objekt = []
-    delar = [("MP101_botten", botten()), ("MP101_lock", lock(text3d)), ("MP101_text", text3d)]
+    delar = [("MP101_botten", botten()), ("MP101_lock", lock(text3d.fuse(streck3d))), ("MP101_text", text3d),
+             ("MP101_logga_streck", streck3d)]
     if SKARM:
         for i, p in enumerate(g.SK_KLAMMOR):
             x, y = kort(p[0] - 6, p[1] - 4)

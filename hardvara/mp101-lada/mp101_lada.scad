@@ -13,11 +13,11 @@
 // under en list i bakväggen, framkanten hålls av två klämmor (del "klammor", 2 × M3×8).
 // Skärmens M2.5-distanser monteras inte. Skärmmått ur Waveshares STEP (4_3inch-dsi-lcd-V1).
 //
-// Exportera delarna (del = "botten", "lock", "text", "klammor"):
+// Exportera delarna (del = "botten", "lock", "text", "streck", "klammor"):
 //   openscad -D 'del="botten"' -D SKARM=true -o botten.stl mp101_lada.scad
 // Färdig Bambu-fil med texten i egen färg: python3 gor_3mf.py [--skarm]
 
-del = "alla";           // "botten", "lock", "text", "klammor" eller "alla" (förhandsvisning)
+del = "alla";           // "botten", "lock", "text", "streck", "klammor" eller "alla" (förhandsvisning)
 SKARM = false;          // inbyggd 4,3"-skärm i locket
 
 // ---- Kortet ----
@@ -70,7 +70,7 @@ KANT = [
     ["usb",  44.5, 69.7, H_USB,   "USB",       0, ""],
     ["usbc", 71.7, 83.6, H_USBC,  "USB-C",     0, ""],
     ["plint",92.6,102.1, H_PLINT, "12V IN",    0, ""],
-    ["can1",104.4,114.5, H_JST,   "CAN1 VESC", 4, "h"],
+    ["can1",104.4,114.5, H_JST,   "CAN1",      4, "h"],
     ["can2",115.2,125.2, H_JST,   "CAN2",      4, "h"],
     ["di4", 126.1,134.1, H_JST,   "DI4 HJUL",  3, "h"],
     ["di3", 134.5,142.5, H_JST,   "DI3",       3, "h"],
@@ -92,7 +92,8 @@ CM5 = [44, 102, 39, 83];   // ventilationsgaller över CM5 (utan skärm)
 
 // Mapro-loggan (2D-snitt av väskans logga, 180 mm bred, centrerad): [x, y, vinkel, bredd, förtjockning]
 // i kortets koordinater. Förtjockningen håller de tunnaste linjerna (SYSTEMS AB) utskrivbara.
-LOGGA_FIL = "mapro_logga.dxf";
+LOGGA_FIL = "mapro_logga.dxf";           // bokstäverna (svart, filament 2)
+LOGGA_STRECK = "mapro_logga_streck.dxf";  // strecket under MA (rött, filament 3)
 LOGGA = SKARM ? [118.5, 64.5, 90, 60, 0.1] : [45, 62, 0, 90, 0.05];
 
 // ---- Skärmen (kortets koordinater) ----
@@ -219,9 +220,20 @@ module lock_kropp() {
 }
 
 // Texten: tunna kroppar i takets ovansida. luft = 1 ger ursparningen (lite djupare).
-module text_kropp(luft = 0) {
+// vilken: "text" (svart), "streck" (loggans röda streck) eller "allt" (ursparningen).
+module text_kropp(luft = 0, vilken = "allt") {
     z = BOTTEN_T + 1.2 + LOCK_H - TEXT_DJUP;
     translate([0, 0, z - luft * 0.01]) linear_extrude(TEXT_DJUP + luft) pa_kortet() {
+        if (vilken != "streck") text_2d();
+        if (vilken != "text") logga_2d(LOGGA_STRECK);
+    }
+}
+
+module logga_2d(fil) {
+    translate([LOGGA[0], LOGGA[1]]) rotate(LOGGA[2]) offset(delta = LOGGA[4]) scale(LOGGA[3] / 180) import(fil);
+}
+
+module text_2d() {
         for (k = KANT) {
             mitt = (k[1] + k[2]) / 2;
             can = k[0] == "can1" || k[0] == "can2";
@@ -251,16 +263,9 @@ module text_kropp(luft = 0) {
         for (g = [["GPS1", SMA_KORT_Y[1]], ["GPS2", SMA_KORT_Y[0]]])
             translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1], 0]) rotate(90)
                 text(g[0], size = 2.8, font = FONT, halign = "center");
-        if (SKARM) {
-            translate([131, 66]) rotate(90) text("MP101", size = 5, font = FONT);
-            translate([138, 56]) rotate(90) text("▲ = stift 1 (+5 V)", size = 2.6, font = FONT);
-        } else {
-            translate([40, 88]) text("MP101", size = 5, font = FONT);
-            translate([40, 82]) text("▲ = stift 1 (+5 V)", size = 3, font = FONT);
-        }
-        translate([LOGGA[0], LOGGA[1]]) rotate(LOGGA[2]) offset(delta = LOGGA[4])
-            scale(LOGGA[3] / 180) import(LOGGA_FIL);
-    }
+        if (SKARM) translate([131, 56]) rotate(90) text("▲ = stift 1 (+5 V)", size = 2.6, font = FONT);
+        else translate([40, 84]) text("▲ = stift 1 (+5 V)", size = 3, font = FONT);
+        logga_2d(LOGGA_FIL);
 }
 
 // Klämmorna som håller skärmens framkant (skrivs ut liggande; placerade som monterade)
@@ -275,11 +280,13 @@ module klammor() {
 if (del == "botten") botten();
 else if (del == "klammor") klammor();
 else if (del == "lock") lock_kropp();
-else if (del == "text") intersection() { text_kropp(); lock_kropp_hel(); }
+else if (del == "text") intersection() { text_kropp(vilken = "text"); lock_kropp_hel(); }
+else if (del == "streck") intersection() { text_kropp(vilken = "streck"); lock_kropp_hel(); }
 else {
     color("dimgray") botten();
     color("dimgray") lock_kropp();
-    color("white") text_kropp();
+    color("white") text_kropp(vilken = "text");
+    color("red") text_kropp(vilken = "streck");
     if (SKARM) color("dimgray") klammor();
 }
 

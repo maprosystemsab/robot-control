@@ -81,18 +81,19 @@ def mesh_xml(oid, nat):
 
 
 def main():
-    lock, text, botten = stl("lock"), stl("text"), stl("botten")
+    lock, text, streck, botten = stl("lock"), stl("text"), stl("streck"), stl("botten")
 
     # Locket och texten upp och ner (rotation 180° runt x), samma flytt för båda
     lo, hi = granser(lock, text)
     vand = lambda x, y, z: (x, -y, hi[2] - z)
-    lock, text = flytta(lock, vand), flytta(text, vand)
+    lock, text, streck = flytta(lock, vand), flytta(text, vand), flytta(streck, vand)
     # Locket på platta 1, framför tvättornet (x 165, y 174). Bottnen, som är enfärgad, på
     # platta 2 så att den slipper tornet. Bambu lägger plattorna 1,2 × plattbredden isär.
     lo, hi = granser(lock, text)
     dx, dy = PLATTA / 2 - (lo[0] + hi[0]) / 2, 15 - lo[1]
     lock = flytta(lock, lambda x, y, z: (x + dx, y + dy, z))
     text = flytta(text, lambda x, y, z: (x + dx, y + dy, z))
+    streck = flytta(streck, lambda x, y, z: (x + dx, y + dy, z))
     blo, bhi = granser(botten)
     bdx = PLATTA * 1.2 + PLATTA / 2 - (blo[0] + bhi[0]) / 2
     bdy = PLATTA / 2 - (blo[1] + bhi[1]) / 2
@@ -113,7 +114,7 @@ def main():
         c = [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2]
         return [flytta(n, lambda x, y, z: (x - c[0], y - c[1], z - c[2])) for n in nat], c
 
-    (lock_c, text_c), pos_lock = centrera(lock, text)
+    (lock_c, text_c, streck_c), pos_lock = centrera(lock, text, streck)
     (botten_c,), pos_botten = centrera(botten)
     if SKARM:
         (klammor_c,), pos_klammor = centrera(klammor)
@@ -141,7 +142,7 @@ def main():
         '<metadata name="Title">MP101-låda</metadata>'
         "<resources>"
         '<object id="4" type="model"><components>'
-        + komponent("object_1.model", 1) + komponent("object_1.model", 2)
+        + komponent("object_1.model", 1) + komponent("object_1.model", 2) + komponent("object_1.model", 8)
         + "</components></object>"
         '<object id="5" type="model"><components>'
         + komponent("object_2.model", 3)
@@ -182,7 +183,7 @@ def main():
         huvud + "<config>\n"
         '  <object id="4">\n    <metadata key="name" value="MP101 lock"/>\n'
         '    <metadata key="extruder" value="1"/>\n'
-        + del_xml(1, "lock", 1) + del_xml(2, "text", 2) + "  </object>\n"
+        + del_xml(1, "lock", 1) + del_xml(2, "text", 2) + del_xml(8, "logga streck", 3) + "  </object>\n"
         '  <object id="5">\n    <metadata key="name" value="MP101 botten"/>\n'
         '    <metadata key="extruder" value="1"/>\n'
         + del_xml(3, "botten", 1) + "  </object>\n"
@@ -205,15 +206,16 @@ def main():
         z.writestr("_rels/.rels", rels)
         z.writestr("3D/3dmodel.model", modell)
         z.writestr("3D/_rels/3dmodel.model.rels", modell_rels)
-        z.writestr("3D/Objects/object_1.model", objektfil((1, lock_c), (2, text_c)))
+        z.writestr("3D/Objects/object_1.model", objektfil((1, lock_c), (2, text_c), (8, streck_c)))
         z.writestr("3D/Objects/object_2.model", objektfil((3, botten_c)))
         if SKARM:
             z.writestr("3D/Objects/object_3.model", objektfil((6, klammor_c)))
         z.writestr("Metadata/model_settings.config", installningar)
-        # Projektinställningar för P2S med två filament (orange låda, svart text); mall från en
-        # tvåfärgsfil sparad i Bambu Studio 2.7.
-        projekt = json.load(open(os.path.join(HAR, "bambu_p2s_projekt.json")))
-        projekt["filament_colour"] = ["#FF6A13", "#000000"]
+        # Projektinställningar för P2S med tre filament: orange låda, svart text, rött logostreck.
+        # Mallen är en tvåfärgsfil sparad i Bambu Studio 2.7, utökad med ett tredje filament
+        # (bambu_p2s_projekt_3f.json). Inget rött filament ännu: byt filament 3 i Bambu.
+        projekt = json.load(open(os.path.join(HAR, "bambu_p2s_projekt_3f.json")))
+        projekt["filament_colour"] = ["#FF6A13", "#000000", "#C12E1F"]
         # Skarp text (den skrivs i de första lagren, mot plattan): tunt, smalt och långsamt
         # första lager, och mer rensning så att svart inte stänker in i orange.
         projekt["initial_layer_print_height"] = "0.16"
