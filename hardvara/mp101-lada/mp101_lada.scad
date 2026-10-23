@@ -5,7 +5,7 @@
 // Höjderna uppmätta på kort 2 (2026-10-23), från kortets underkant minus kortets tjocklek.
 // Bottnen har båda kortsidorna (SMA-skotten sitter i den ena), locket är tak + långsidor.
 // Montering: kortet i bottnen (4 × M3×6), SMA-kablarna, sist locket (4 × M3×12 i pelarna vid
-// kortsidorna). Allt skruvas uppifrån och gängar sig i plasten (hål 2,8 mm).
+// kortsidorna). Allt skruvas uppifrån och gängar sig i plasten (hål 3,0 mm).
 //
 // SKARM = true: locket får en inbyggd Waveshare 4,3" DSI-pekskärm (800×480, samma som MacBot)
 // över kortets vänstra halva. Locket blir 4 mm högre, Ethernet-änden 7 mm längre och
@@ -31,10 +31,10 @@ H_LOCK_INV = SKARM ? 20 : 16;   // fri höjd under locket (USB-A är högst, 14,
 H_RJ45 = 11.4;
 H_USB = 14.4;
 H_USBC = 6.5;           // hålets höjd: kontaktens gjutna hylsa (uttaget självt är 3,4)
-H_PLINT = 7.1;
+H_PLINT = 10;           // hålets höjd: plinten med kontakt, skruvar och kablar (plinten själv 7,1)
 H_JST = 5.4;            // JST PH liggande
 H_UNDER = 5;            // frigång under kortet (provat 23/10: 3 mm var för lite)
-M3_GANG = 2.8;          // M3 som gängar sig i plasten
+M3_GANG = 3.0;          // M3 som gängar sig i plasten (2,8 var för trångt i PLA, provat 23/10)
 M3_FRI = 3.4;
 
 // ---- Låda ----
@@ -69,7 +69,7 @@ KANT = [
     ["eth",   1.2, 19.0, H_RJ45,  "ETH",       0, ""],
     ["usb",  44.5, 69.7, H_USB,   "USB",       0, ""],
     ["usbc", 71.7, 83.6, H_USBC,  "USB-C",     0, ""],
-    ["plint",93.6,102.1, H_PLINT, "12V IN",    0, ""],
+    ["plint",92.6,102.1, H_PLINT, "12V IN",    0, ""],
     ["can1",104.4,114.5, H_JST,   "CAN1 VESC", 4, "h"],
     ["can2",115.2,125.2, H_JST,   "CAN2",      4, "h"],
     ["di4", 126.1,134.1, H_JST,   "DI4 HJUL",  3, "h"],
