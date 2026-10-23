@@ -2,6 +2,7 @@
 """Bygger mp101_lada.step (riktiga ytor, för SolidWorks m.fl.) med FreeCAD.
 
   freecadcmd hardvara/mp101-lada/gor_step.py
+  SKARM=1 freecadcmd hardvara/mp101-lada/gor_step.py     (mp101_lada_skarm.step, med 4,3"-skärm)
 
 Måtten läses ur mp101_lada.scad, så ändringar görs bara där. Geometrin här ska
 spegla modulerna botten(), lock_kropp() och text_kropp() i .scad-filen.
@@ -18,24 +19,27 @@ from FreeCAD import Vector
 
 HAR = os.path.dirname(os.path.abspath(__file__)) if "__file__" in globals() else os.getcwd()
 SCAD = os.path.join(HAR, "mp101_lada.scad")
-UT = os.path.join(HAR, "mp101_lada.step")
+SKARM = os.environ.get("SKARM", "") not in ("", "0")
+UT = os.path.join(HAR, "mp101_lada_skarm.step" if SKARM else "mp101_lada.step")
 TYPSNITT = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 TEXT_SKALA = 1.0776   # OpenSCAD text(size) blir så här mycket större än FreeCADs
 
 # ---- Mått ur .scad: enkla tilldelningar och listorna HAL, KANT, TOPP, CM5 ----
-k = {}
+k = {"SKARM": SKARM}
 kalla = open(SCAD, encoding="utf-8").read()
 for namn, uttryck in re.findall(r"^([A-Z][A-Z0-9_]*)\s*=\s*([^;]+);", kalla, re.M | re.S):
     uttryck = re.sub(r"//[^\n]*", "", uttryck).strip()
-    if uttryck.startswith("[for"):
+    if uttryck.startswith("[for") or namn == "SKARM":
         continue
+    # OpenSCAD:s  a ? b : c  (en nivå) -> Pythons  (b if a else c)
+    uttryck = re.sub(r"^(\w+)\s*\?\s*(.+?)\s*:\s*(.+)$", r"(\2 if \1 else \3)", uttryck)
     try:  # eval av vår egen .scad-fil (siffror, listor, tidigare namn), aldrig av indata utifrån
         k[namn] = eval(uttryck, {"__builtins__": {}}, k)
     except Exception:
         pass
 g = type("K", (), k)
-LOCK_SKRUV = [(x, y) for x in (-g.SPEL - g.ANDE + 3.5, g.KORT_X + g.SPEL + g.ANDE - 3.5) for y in (12, 83)]
-KX0, KY0 = g.VAGG + g.SPEL + g.ANDE, g.VAGG + g.SPEL   # kortets nollpunkt i lådan
+LOCK_SKRUV = [(x, y) for x in (-g.SPEL - g.ANDE_V + 3.5, g.KORT_X + g.SPEL + g.ANDE - 3.5) for y in (12, 83)]
+KX0, KY0 = g.VAGG + g.SPEL + g.ANDE_V, g.VAGG + g.SPEL   # kortets nollpunkt i lådan
 
 
 def box(x, y, z, dx, dy, dz):
@@ -122,8 +126,8 @@ def text_2d():
     for txt, y in (("GPS1", sma_y[1]), ("GPS2", sma_y[0])):
         ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5,
                             y - g.VAGG - g.SPEL, 90, "center"))
-    ytor.append(placera(textytor("MP101", 5), 40, 88))
-    ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 3), 40, 82))
+    ytor.append(placera(textytor("MP101", 5), *((107, 86) if SKARM else (40, 88))))
+    ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 2.6 if SKARM else 3), *((107, 79) if SKARM else (40, 82))))
     platt = Part.Compound(ytor)
     platt.translate(Vector(KX0, KY0, 0))
     return platt
@@ -170,7 +174,12 @@ def lock(text3d):
               box(-1, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre),
               box(g.UT_X - g.VAGG - 0.3, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre)):
         skal = skal.cut(b)
-    s = fusion([skal] + [cyl(*kort(*p), Z_STOLPE + 0.2, 8, TOPP_Z - Z_STOLPE - 0.2) for p in LOCK_SKRUV])
+    delar = [skal] + [cyl(*kort(*p), Z_STOLPE + 0.2, 8, TOPP_Z - Z_STOLPE - 0.2) for p in LOCK_SKRUV]
+    if SKARM:
+        x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
+        delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen
+        delar += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER, 7, g.SK_PCB_UNDER + 0.1) for p in g.SK_KLAMMOR]
+    s = fusion(delar)
     hal = []
     for _n, x0, x1, h, *_ in g.KANT:
         x, y = kort(x0 - 0.6, -g.VAGG - g.SPEL - 1)
@@ -178,11 +187,27 @@ def lock(text3d):
     for o in g.TOPP:
         x, y = kort(o[0] - 0.8, o[2] - 0.8)
         hal.append(box(x, y, 0, o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100))
-    y = g.CM5[2] + 4
-    while y <= g.CM5[3] - 4 + 1e-9:
-        x, yy = kort(g.CM5[0] + 6, y)
-        hal.append(box(x, yy, 0, g.CM5[1] - g.CM5[0] - 12, 2.2, 100))
-        y += 5
+    if SKARM:
+        x = g.UT_X * 0.12
+        while x <= g.UT_X * 0.88 + 1e-9:     # ventilation i bakväggen
+            hal.append(box(x, g.UT_Y - g.VAGG - 1, g.BOTTEN_H + g.KORT_T + 2.5, 3, g.VAGG + 2, 5.5))
+            x += 6
+        # fönster med fas utåt (stympad pyramid) och ficka för glaset
+        mx, my = kort(*g.SK_MITT)
+        nere = Part.makePolygon([Vector(mx + sx * (g.SK_AKTIV[0] / 2 + 0.5), my + sy * (g.SK_AKTIV[1] / 2 + 0.5), TAK_Z - 0.01)
+                                 for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1))])
+        uppe = Part.makePolygon([Vector(mx + sx * (g.SK_AKTIV[0] / 2 + 2.5), my + sy * (g.SK_AKTIV[1] / 2 + 2.5), TOPP_Z + 0.01)
+                                 for sx, sy in ((-1, -1), (1, -1), (1, 1), (-1, 1), (-1, -1))])
+        hal.append(Part.makeLoft([nere, uppe], True))
+        x, y = kort(g.SK_MITT[0] - g.SK_GLAS[0] / 2 - 0.2, g.SK_MITT[1] + g.SK_GLAS_DY - g.SK_GLAS[1] / 2 - 0.2)
+        hal.append(box(x, y, TAK_Z - 1, g.SK_GLAS[0] + 0.4, g.SK_GLAS[1] + 0.4, 1 + g.SK_FICKA))
+        hal += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER - 1, g.M3_GANG, g.SK_PCB_UNDER) for p in g.SK_KLAMMOR]
+    else:
+        y = g.CM5[2] + 4
+        while y <= g.CM5[3] - 4 + 1e-9:
+            x, yy = kort(g.CM5[0] + 6, y)
+            hal.append(box(x, yy, 0, g.CM5[1] - g.CM5[0] - 12, 2.2, 100))
+            y += 5
     for p in LOCK_SKRUV:
         hal.append(cyl(*kort(*p), 0, g.M3_FRI, 100))
         hal.append(cyl(*kort(*p), TOPP_Z - 3, 6.4, 10))
@@ -198,7 +223,13 @@ def main():
     text3d.translate(Vector(0, 0, TOPP_Z - g.TEXT_DJUP))
     dok = FreeCAD.newDocument("MP101_lada")
     objekt = []
-    for namn, form in (("MP101_botten", botten()), ("MP101_lock", lock(text3d)), ("MP101_text", text3d)):
+    delar = [("MP101_botten", botten()), ("MP101_lock", lock(text3d)), ("MP101_text", text3d)]
+    if SKARM:
+        for i, p in enumerate(g.SK_KLAMMOR):
+            x, y = kort(p[0] - 6, p[1] - 4)
+            klamma = box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 12, 12, 2).cut(cyl(*kort(*p), 0, g.M3_FRI, 100))
+            delar.append((f"MP101_skarmklamma_{i + 1}", klamma))
+    for namn, form in delar:
         o = dok.addObject("Part::Feature", namn)
         o.Shape = form
         objekt.append(o)

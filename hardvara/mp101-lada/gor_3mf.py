@@ -3,6 +3,7 @@
 bottenplattan, färdigplacerade på plattan.
 
   python3 gor_3mf.py            (kör OpenSCAD först om STL-filerna saknas eller är äldre än .scad)
+  python3 gor_3mf.py --skarm    mp101_lada_skarm.3mf: lock med 4,3"-skärm, klämmorna på platta 2
 
 Locket vänds upp och ner så att texten skrivs i de första lagren mot plattan.
 """
@@ -16,14 +17,17 @@ import zipfile
 
 HAR = os.path.dirname(os.path.abspath(__file__))
 SCAD = os.path.join(HAR, "mp101_lada.scad")
-UT = os.path.join(HAR, "mp101_lada.3mf")
+SKARM = "--skarm" in sys.argv
+NAMN = "_skarm" if SKARM else ""
+UT = os.path.join(HAR, f"mp101_lada{NAMN}.3mf")
 PLATTA = 256  # Bambu P2S, mm
 
 
 def stl(del_):
-    fil = os.path.join(HAR, del_ + ".stl")
+    fil = os.path.join(HAR, del_ + NAMN + ".stl")
     if not os.path.exists(fil) or os.path.getmtime(fil) < os.path.getmtime(SCAD):
-        subprocess.run(["openscad", "-q", "-D", f'del="{del_}"', "-o", fil, SCAD], check=True)
+        subprocess.run(["openscad", "-q", "-D", f'del="{del_}"', "-D", f"SKARM={str(SKARM).lower()}",
+                        "-o", fil, SCAD], check=True)
     return las_stl(fil)
 
 
@@ -93,6 +97,14 @@ def main():
     bdx = PLATTA * 1.2 + PLATTA / 2 - (blo[0] + bhi[0]) / 2
     bdy = PLATTA / 2 - (blo[1] + bhi[1]) / 2
     botten = flytta(botten, lambda x, y, z: (x + bdx, y + bdy, z - blo[2]))
+    if SKARM:
+        # klämmorna liggande framför bottnen på platta 2
+        klammor = stl("klammor")
+        klo, khi = granser(klammor)
+        botten_lo = granser(botten)[0]
+        kdx = PLATTA * 1.2 + PLATTA / 2 - (klo[0] + khi[0]) / 2
+        kdy = botten_lo[1] - 6 - khi[1]
+        klammor = flytta(klammor, lambda x, y, z: (x + kdx, y + kdy, z - klo[2]))
 
     # Bambu-format: meshen i 3D/Objects/, objekten i 3dmodel.model som komponenter med
     # centrerade mesh och placering i build-transformen. Del-id = mesh-objektets id.
@@ -103,6 +115,8 @@ def main():
 
     (lock_c, text_c), pos_lock = centrera(lock, text)
     (botten_c,), pos_botten = centrera(botten)
+    if SKARM:
+        (klammor_c,), pos_klammor = centrera(klammor)
     ns = ('xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" '
           'xmlns:BambuStudio="http://schemas.bambulab.com/package/2021" '
           'xmlns:p="http://schemas.microsoft.com/3dmanufacturing/production/2015/06" requiredextensions="p"')
@@ -132,17 +146,22 @@ def main():
         '<object id="5" type="model"><components>'
         + komponent("object_2.model", 3)
         + "</components></object>"
-        "</resources><build>"
+        + ('<object id="7" type="model"><components>' + komponent("object_3.model", 6)
+           + "</components></object>" if SKARM else "")
+        + "</resources><build>"
         f'<item objectid="4" transform="{plats(pos_lock)}" printable="1"/>'
         f'<item objectid="5" transform="{plats(pos_botten)}" printable="1"/>'
-        "</build></model>"
+        + (f'<item objectid="7" transform="{plats(pos_klammor)}" printable="1"/>' if SKARM else "")
+        + "</build></model>"
     )
     modell_rels = (huvud + '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
                    '<Relationship Target="/3D/Objects/object_1.model" Id="rel-1" '
                    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
                    '<Relationship Target="/3D/Objects/object_2.model" Id="rel-2" '
                    'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
-                   "</Relationships>")
+                   + ('<Relationship Target="/3D/Objects/object_3.model" Id="rel-3" '
+                      'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>' if SKARM else "")
+                   + "</Relationships>")
 
     def del_xml(pid, namn, extruder):
         return (f'    <part id="{pid}" subtype="normal_part">\n'
@@ -151,13 +170,13 @@ def main():
                 f'      <metadata key="extruder" value="{extruder}"/>\n'
                 "    </part>\n")
 
-    def platta(nr, namn, oid):
+    def platta(nr, namn, *oid):
         return (f'  <plate>\n    <metadata key="plater_id" value="{nr}"/>\n'
                 f'    <metadata key="plater_name" value="{namn}"/>\n'
                 '    <metadata key="locked" value="false"/>\n'
-                f'    <model_instance>\n      <metadata key="object_id" value="{oid}"/>\n'
-                '      <metadata key="instance_id" value="0"/>\n    </model_instance>\n'
-                "  </plate>\n")
+                + "".join(f'    <model_instance>\n      <metadata key="object_id" value="{o}"/>\n'
+                          '      <metadata key="instance_id" value="0"/>\n    </model_instance>\n' for o in oid)
+                + "  </plate>\n")
 
     installningar = (
         huvud + "<config>\n"
@@ -167,7 +186,11 @@ def main():
         '  <object id="5">\n    <metadata key="name" value="MP101 botten"/>\n'
         '    <metadata key="extruder" value="1"/>\n'
         + del_xml(3, "botten", 1) + "  </object>\n"
-        + platta(1, "Lock (2 färger)", 4) + platta(2, "Botten", 5) + "</config>\n")
+        + ('  <object id="7">\n    <metadata key="name" value="Skärmklämmor"/>\n'
+           '    <metadata key="extruder" value="1"/>\n'
+           + del_xml(6, "klammor", 1) + "  </object>\n" if SKARM else "")
+        + platta(1, "Lock (2 färger)", 4)
+        + (platta(2, "Botten + klämmor", 5, 7) if SKARM else platta(2, "Botten", 5)) + "</config>\n")
     typer = (huvud + '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
              '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
              '<Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml"/>'
@@ -184,6 +207,8 @@ def main():
         z.writestr("3D/_rels/3dmodel.model.rels", modell_rels)
         z.writestr("3D/Objects/object_1.model", objektfil((1, lock_c), (2, text_c)))
         z.writestr("3D/Objects/object_2.model", objektfil((3, botten_c)))
+        if SKARM:
+            z.writestr("3D/Objects/object_3.model", objektfil((6, klammor_c)))
         z.writestr("Metadata/model_settings.config", installningar)
         # Projektinställningar för P2S med två filament (orange låda, svart text); mall från en
         # tvåfärgsfil sparad i Bambu Studio 2.7.

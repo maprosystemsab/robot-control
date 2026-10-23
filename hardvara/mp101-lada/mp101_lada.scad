@@ -7,11 +7,18 @@
 // Montering: kortet i bottnen (4 × M3×6), SMA-kablarna, sist locket (4 × M3×12 i pelarna vid
 // kortsidorna). Allt skruvas uppifrån och gängar sig i plasten (hål 2,8 mm).
 //
-// Exportera tre delar (del = "botten", "lock", "text"):
-//   openscad -D 'del="botten"' -o botten.stl mp101_lada.scad
-// Färdig Bambu-fil med texten i egen färg: python3 gor_3mf.py
+// SKARM = true: locket får en inbyggd Waveshare 4,3" DSI-pekskärm (800×480, samma som MacBot)
+// över kortets vänstra halva. Locket blir 4 mm högre, Ethernet-änden 7 mm längre och
+// ventilationen flyttas till bakväggen. Skärmen läggs i en ficka i takets undersida, bakkanten
+// under en list i bakväggen, framkanten hålls av två klämmor (del "klammor", 2 × M3×8).
+// Skärmens M2.5-distanser monteras inte. Skärmmått ur Waveshares STEP (4_3inch-dsi-lcd-V1).
+//
+// Exportera delarna (del = "botten", "lock", "text", "klammor"):
+//   openscad -D 'del="botten"' -D SKARM=true -o botten.stl mp101_lada.scad
+// Färdig Bambu-fil med texten i egen färg: python3 gor_3mf.py [--skarm]
 
-del = "alla";           // "botten", "lock", "text" eller "alla" (förhandsvisning)
+del = "alla";           // "botten", "lock", "text", "klammor" eller "alla" (förhandsvisning)
+SKARM = false;          // inbyggd 4,3"-skärm i locket
 
 // ---- Kortet ----
 KORT_X = 160;
@@ -20,7 +27,7 @@ KORT_T = 1.6;
 HAL = [[4.0, 90.6], [156.0, 90.6], [155.6, 13.4], [85.8, 4.6]];   // M3-hål i kortet
 
 // ---- Höjder över kortets ovansida (uppmätta) ----
-H_LOCK_INV = 16;        // fri höjd under locket (USB-A är högst, 14,4)
+H_LOCK_INV = SKARM ? 20 : 16;   // fri höjd under locket (USB-A är högst, 14,4; skärmen tar 10,4)
 H_RJ45 = 11.4;
 H_USB = 14.4;
 H_USBC = 3.4;
@@ -35,10 +42,11 @@ VAGG = 2.2;
 TAK = 2.0;
 SPEL = 0.6;             // luft runt kortet
 ANDE = 9;               // extra plats i varje kortände för lockets skruvar
+ANDE_V = SKARM ? ANDE + 7 : ANDE;   // Ethernet-änden: med skärm ryms den mellan lockets skruvar
 TEXT_DJUP = 0.6;        // inlagd text i taket (egen färg)
 FONT = "DejaVu Sans:style=Bold";
 
-IN_X = KORT_X + 2 * SPEL + 2 * ANDE;
+IN_X = KORT_X + 2 * SPEL + ANDE + ANDE_V;
 IN_Y = KORT_Y + 2 * SPEL;
 UT_X = IN_X + 2 * VAGG;
 UT_Y = IN_Y + 2 * VAGG;
@@ -49,7 +57,7 @@ TOPP_Z = BOTTEN_T + 1.2 + LOCK_H;       // lockets ovansida
 TAK_Z = TOPP_Z - TAK;                   // takets undersida = kortsidornas överkant
 Z_STOLPE = TAK_Z - 3;                   // pelarna slutar här, locket har en klack ner till dem
 // lockets skruvar i pelare som sitter ihop med kortsidorna (kortets koordinater)
-LOCK_SKRUV = [for (x = [-SPEL - ANDE + 3.5, KORT_X + SPEL + ANDE - 3.5], y = [12, 83]) [x, y]];
+LOCK_SKRUV = [for (x = [-SPEL - ANDE_V + 3.5, KORT_X + SPEL + ANDE - 3.5], y = [12, 83]) [x, y]];
 SMA_Y = [UT_Y * 0.4, UT_Y * 0.6];       // i lådans koordinater
 
 // Kontakter längs kontaktkanten: [namn, x0, x1, höjd, text, stift, stift 1-ände ("h" = hög x)]
@@ -74,14 +82,23 @@ TOPP = [
     [154.4, 158.9, 47.0, 61.0, "PROG",       [150.0, 68.0], 0],
     [142.0, 152.1, 89.9, 94.4, "RS232",      [147.0, 85.5], 0],
 ];
-CM5 = [44, 102, 39, 83];   // ventilationsgaller över CM5
+CM5 = [44, 102, 39, 83];   // ventilationsgaller över CM5 (utan skärm)
+
+// ---- Skärmen (kortets koordinater) ----
+SK_GLAS = [106.1, 67.8];               // glasets yttermått
+SK_AKTIV = [95.5, 54.4];               // synlig bildyta, centrerad i SK_MITT
+SK_GLAS_DY = -2.37;                    // glasets mitt ligger så här mycket mot kontaktkanten
+SK_MITT = [-7.6 + SK_GLAS[0] / 2, 27 + SK_GLAS[1] / 2 - SK_GLAS_DY];
+SK_FICKA = 0.8;                        // glaset sjunker in så här mycket i takets undersida
+SK_PCB_UNDER = 8.14 - SK_FICKA;        // skärmkortets baksida under takets undersida
+SK_KLAMMOR = [[28, 22.5], [80, 22.5]];
 
 module rundad_lada(x, y, h, r = 3) {
     hull() for (i = [r, x - r], j = [r, y - r]) translate([i, j, 0]) cylinder(r = r, h = h, $fn = 32);
 }
 
 // Kortets nollpunkt i lådans koordinater
-module pa_kortet() { translate([VAGG + SPEL + ANDE, VAGG + SPEL, 0]) children(); }
+module pa_kortet() { translate([VAGG + SPEL + ANDE_V, VAGG + SPEL, 0]) children(); }
 
 // Kortsidornas väggar (ingår i bottnen) och lockets ram (resten)
 module kortsidor(h) {
@@ -135,6 +152,14 @@ module lock_kropp() {
                 translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
                 translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
             }
+            if (SKARM) {
+                // list i bakväggen som skärmkortets bakkant vilar på
+                pa_kortet() translate([SK_MITT[0] - 45, KORT_Y + SPEL - 2.4, TAK_Z - SK_PCB_UNDER - 2])
+                    cube([90, 2.5, 2]);
+                // klackar för klämmorna fram
+                pa_kortet() for (p = SK_KLAMMOR)
+                    translate([p[0], p[1], TAK_Z - SK_PCB_UNDER]) cylinder(d = 7, h = SK_PCB_UNDER + 0.1, $fn = 40);
+            }
             // klackar ner mot bottnens pelare
             pa_kortet() for (p = LOCK_SKRUV)
                 translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = TOPP_Z - Z_STOLPE - 0.2, $fn = 40);
@@ -146,9 +171,25 @@ module lock_kropp() {
         // tak-öppningar
         pa_kortet() for (o = TOPP)
             translate([o[0] - 0.8, o[2] - 0.8, 0]) cube([o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100]);
-        // ventilation över CM5
-        pa_kortet() for (y = [CM5[2] + 4 : 5 : CM5[3] - 4])
-            translate([CM5[0] + 6, y, 0]) cube([CM5[1] - CM5[0] - 12, 2.2, 100]);
+        if (SKARM) {
+            // ventilation i bakväggen, under listen
+            for (x = [UT_X * 0.12 : 6 : UT_X * 0.88])
+                translate([x, UT_Y - VAGG - 1, BOTTEN_H + KORT_T + 2.5]) cube([3, VAGG + 2, 5.5]);
+            // skärmfönster med fas utåt, och ficka för glaset underifrån
+            pa_kortet() translate([SK_MITT[0], SK_MITT[1], TAK_Z - 0.01]) hull() {
+                translate([-SK_AKTIV[0] / 2 - 0.5, -SK_AKTIV[1] / 2 - 0.5, 0]) cube([SK_AKTIV[0] + 1, SK_AKTIV[1] + 1, 0.01]);
+                translate([-SK_AKTIV[0] / 2 - 2.5, -SK_AKTIV[1] / 2 - 2.5, TAK + 0.02]) cube([SK_AKTIV[0] + 5, SK_AKTIV[1] + 5, 0.01]);
+            }
+            pa_kortet() translate([SK_MITT[0] - SK_GLAS[0] / 2 - 0.2, SK_MITT[1] + SK_GLAS_DY - SK_GLAS[1] / 2 - 0.2, TAK_Z - 1])
+                cube([SK_GLAS[0] + 0.4, SK_GLAS[1] + 0.4, 1 + SK_FICKA]);
+            // klämmornas skruvar (M3×8)
+            pa_kortet() for (p = SK_KLAMMOR)
+                translate([p[0], p[1], TAK_Z - SK_PCB_UNDER - 1]) cylinder(d = M3_GANG, h = SK_PCB_UNDER, $fn = 32);
+        } else {
+            // ventilation över CM5
+            pa_kortet() for (y = [CM5[2] + 4 : 5 : CM5[3] - 4])
+                translate([CM5[0] + 6, y, 0]) cube([CM5[1] - CM5[0] - 12, 2.2, 100]);
+        }
         // lockets skruvar: fritt hål och försänkt skalle
         pa_kortet() for (p = LOCK_SKRUV) {
             translate([p[0], p[1], 0]) cylinder(d = M3_FRI, h = 100, $fn = 32);
@@ -187,18 +228,29 @@ module text_kropp(luft = 0) {
         for (g = [["GPS1", SMA_Y[1]], ["GPS2", SMA_Y[0]]])
             translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1] - VAGG - SPEL, 0]) rotate(90)
                 text(g[0], size = 2.8, font = FONT, halign = "center");
-        translate([40, 88, 0]) text("MP101", size = 5, font = FONT);
-        translate([40, 82, 0]) text("▲ = stift 1 (+5 V)", size = 3, font = FONT);
+        translate(SKARM ? [107, 86] : [40, 88]) text("MP101", size = 5, font = FONT);
+        translate(SKARM ? [107, 79] : [40, 82]) text("▲ = stift 1 (+5 V)", size = SKARM ? 2.6 : 3, font = FONT);
     }
 }
 
+// Klämmorna som håller skärmens framkant (skrivs ut liggande; placerade som monterade)
+module klammor() {
+    pa_kortet() for (p = SK_KLAMMOR)
+        difference() {
+            translate([p[0] - 6, p[1] - 4, TAK_Z - SK_PCB_UNDER - 2]) cube([12, 12, 2]);
+            translate([p[0], p[1], 0]) cylinder(d = M3_FRI, h = 100, $fn = 32);
+        }
+}
+
 if (del == "botten") botten();
+else if (del == "klammor") klammor();
 else if (del == "lock") lock_kropp();
 else if (del == "text") intersection() { text_kropp(); lock_kropp_hel(); }
 else {
     color("dimgray") botten();
     color("dimgray") lock_kropp();
     color("white") text_kropp();
+    if (SKARM) color("dimgray") klammor();
 }
 
 module lock_kropp_hel() { translate([0, 0, BOTTEN_T + 1.2]) rundad_lada(UT_X, UT_Y, LOCK_H); }
