@@ -88,6 +88,11 @@ TOPP = [
 ];
 CM5 = [44, 102, 39, 83];   // ventilationsgaller över CM5 (utan skärm)
 
+// Mapro-loggan (2D-snitt av väskans logga, 180 mm bred, centrerad): [x, y, vinkel, bredd, förtjockning]
+// i kortets koordinater. Förtjockningen håller de tunnaste linjerna (SYSTEMS AB) utskrivbara.
+LOGGA_FIL = "mapro_logga.dxf";
+LOGGA = SKARM ? [118.5, 64.5, 90, 60, 0.1] : [45, 62, 0, 90, 0.05];
+
 // ---- Skärmen (kortets koordinater) ----
 SK_GLAS = [106.1, 67.8];               // glasets yttermått
 SK_AKTIV = [95.5, 54.4];               // synlig bildyta, centrerad i SK_MITT
@@ -198,9 +203,9 @@ module lock_kropp() {
             pa_kortet() for (p = SK_KLAMMOR)
                 translate([p[0], p[1], TAK_Z - SK_PCB_UNDER - 1]) cylinder(d = M3_GANG, h = SK_PCB_UNDER, $fn = 32);
         } else {
-            // ventilation över CM5
-            pa_kortet() for (y = [CM5[2] + 4 : 5 : CM5[3] - 4])
-                translate([CM5[0] + 6, y, 0]) cube([CM5[1] - CM5[0] - 12, 2.2, 100]);
+            // ventilation i bakväggen (taket har loggan)
+            for (x = [UT_X * 0.12 : 6 : UT_X * 0.88])
+                translate([x, UT_Y - VAGG - 1, BOTTEN_H + KORT_T + 2.5]) cube([3, VAGG + 2, 10]);
         }
         // lockets skruvar: fritt hål och försänkt skalle
         pa_kortet() for (p = LOCK_SKRUV) {
@@ -244,8 +249,15 @@ module text_kropp(luft = 0) {
         for (g = [["GPS1", SMA_KORT_Y[1]], ["GPS2", SMA_KORT_Y[0]]])
             translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1], 0]) rotate(90)
                 text(g[0], size = 2.8, font = FONT, halign = "center");
-        translate(SKARM ? [107, 86] : [40, 88]) text("MP101", size = 5, font = FONT);
-        translate(SKARM ? [107, 79] : [40, 82]) text("▲ = stift 1 (+5 V)", size = SKARM ? 2.6 : 3, font = FONT);
+        if (SKARM) {
+            translate([131, 66]) rotate(90) text("MP101", size = 5, font = FONT);
+            translate([138, 56]) rotate(90) text("▲ = stift 1 (+5 V)", size = 2.6, font = FONT);
+        } else {
+            translate([40, 88]) text("MP101", size = 5, font = FONT);
+            translate([40, 82]) text("▲ = stift 1 (+5 V)", size = 3, font = FONT);
+        }
+        translate([LOGGA[0], LOGGA[1]]) rotate(LOGGA[2]) offset(delta = LOGGA[4])
+            scale(LOGGA[3] / 180) import(LOGGA_FIL);
     }
 }
 

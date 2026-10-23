@@ -89,6 +89,62 @@ def textytor(text, storlek):
     return Part.Compound(ut)
 
 
+def ytor_med_hal(slingor):
+    """Plana ytor av slutna trådar; trådar inuti andra blir hål (udda nästlingsdjup)."""
+    ytor = sorted((Part.Face(w) for w in slingor), key=lambda f: -f.Area)
+    form = None
+    for i, f in enumerate(ytor):
+        p = f.CenterOfMass if f.isInside(f.CenterOfMass, 1e-6, True) else f.Vertexes[0].Point
+        djup = sum(1 for o in ytor[:i] if o.isInside(p, 1e-6, True))
+        if form is None:
+            form = f
+        elif djup % 2:
+            form = form.cut(f)
+        else:
+            form = form.fuse(f)
+    return form
+
+
+def logga_2d():
+    """Mapro-loggan ur mapro_logga.dxf (LINE-segment från OpenSCAD), skalad, förtjockad och placerad."""
+    data = open(os.path.join(HAR, g.LOGGA_FIL), encoding="utf-8").read().split("\n")
+    par = [(data[i].strip(), data[i + 1].strip()) for i in range(0, len(data) - 1, 2)]
+    seg, cur = [], None
+    for kod, varde in par:
+        if kod == "0":
+            if cur and len(cur) == 4:
+                seg.append(((cur["10"], cur["20"]), (cur["11"], cur["21"])))
+            cur = {} if varde == "LINE" else None
+        elif cur is not None and kod in ("10", "20", "11", "21"):
+            cur[kod] = float(varde)
+    # Kedja ihop segmenten till slutna slingor
+    nyckel = lambda p: (round(p[0], 4), round(p[1], 4))
+    fran = {}
+    for a, b in seg:
+        fran.setdefault(nyckel(a), []).append(b)
+    slingor, anvand = [], set()
+    for a, b in seg:
+        if (nyckel(a), nyckel(b)) in anvand:
+            continue
+        pkt, start = [a], nyckel(a)
+        p = b
+        anvand.add((nyckel(a), nyckel(b)))
+        while nyckel(p) != start:
+            pkt.append(p)
+            nasta = next(q for q in fran[nyckel(p)] if (nyckel(p), nyckel(q)) not in anvand)
+            anvand.add((nyckel(p), nyckel(nasta)))
+            p = nasta
+        slingor.append(pkt + [pkt[0]])
+    x, y, vinkel, bredd, tjock = g.LOGGA
+    k = bredd / 180   # skala punkterna (en skalad yta blir inte längre plan för FreeCAD)
+    form = ytor_med_hal([Part.makePolygon([Vector(px * k, py * k, 0) for px, py in sl]) for sl in slingor])
+    if tjock > 0:
+        form = Part.Compound([f.makeOffset2D(tjock, join=2) for f in form.Faces])
+    form.rotate(Vector(0, 0, 0), Vector(0, 0, 1), vinkel)
+    form.translate(Vector(x, y, 0))
+    return form
+
+
 def placera(form, x, y, vinkel=0, halign="left", valign="baseline"):
     bb = form.BoundBox
     dx = -(bb.XMin + bb.XMax) / 2 if halign == "center" else 0
@@ -129,8 +185,13 @@ def text_2d():
     ytor.append(triangel(104.05, 42.8))
     for txt, y in (("GPS1", g.SMA_KORT_Y[1]), ("GPS2", g.SMA_KORT_Y[0])):
         ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5, y, 90, "center"))
-    ytor.append(placera(textytor("MP101", 5), *((107, 86) if SKARM else (40, 88))))
-    ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 2.6 if SKARM else 3), *((107, 79) if SKARM else (40, 82))))
+    if SKARM:
+        ytor.append(placera(textytor("MP101", 5), 131, 66, 90))
+        ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 2.6), 138, 56, 90))
+    else:
+        ytor.append(placera(textytor("MP101", 5), 40, 88))
+        ytor.append(placera(textytor("▲ = stift 1 (+5 V)", 3), 40, 82))
+    ytor += logga_2d().Faces
     platt = Part.Compound(ytor)
     platt.translate(Vector(KX0, KY0, 0))
     return platt
@@ -207,11 +268,10 @@ def lock(text3d):
         hal.append(box(x, y, TAK_Z - 1, g.SK_GLAS[0] + 0.4, g.SK_GLAS[1] + 0.4, 1 + g.SK_FICKA))
         hal += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER - 1, g.M3_GANG, g.SK_PCB_UNDER) for p in g.SK_KLAMMOR]
     else:
-        y = g.CM5[2] + 4
-        while y <= g.CM5[3] - 4 + 1e-9:
-            x, yy = kort(g.CM5[0] + 6, y)
-            hal.append(box(x, yy, 0, g.CM5[1] - g.CM5[0] - 12, 2.2, 100))
-            y += 5
+        x = g.UT_X * 0.12
+        while x <= g.UT_X * 0.88 + 1e-9:     # ventilation i bakväggen (taket har loggan)
+            hal.append(box(x, g.UT_Y - g.VAGG - 1, g.BOTTEN_H + g.KORT_T + 2.5, 3, g.VAGG + 2, 10))
+            x += 6
     for p in LOCK_SKRUV:
         hal.append(cyl(*kort(*p), 0, g.M3_FRI, 100))
         hal.append(cyl(*kort(*p), TOPP_Z - 3, 6.4, 10))
