@@ -82,8 +82,7 @@ KANT = [
 TOPP = [
     [101.8, 106.3, 46.1, 58.0, "VINKEL J30", [98.6, 52], 90],
     [144.5, 156.5, 39.2, 43.9, "I2C",        [150.5, 35.0], 0],
-    [145.1, 153.7, 44.3, 64.9, "",           [0, 0], 0],     // LED-fönster
-    [154.4, 158.9, 47.0, 61.0, "PROG",       [150.0, 68.0], 0],
+    // PROG och LED-fönstret borttagna: programmeraren sitter på kortet (lyft locket vid behov)
     [142.0, 152.1, 89.9, 94.4, "RS232",      [147.0, 85.5], 0],
 ];
 CM5 = [44, 102, 39, 83];   // ventilationsgaller över CM5 (utan skärm)
