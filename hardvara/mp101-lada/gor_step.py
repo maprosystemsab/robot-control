@@ -126,7 +126,7 @@ def text_2d():
             ytor.append(placera(textytor(o[4], 2.8), o[5][0], o[5][1], o[6], "center", "center"))
     ytor.append(placera(textytor("+", 3.6), 95.6, 0.8, 0, "center"))
     ytor.append(placera(textytor("−", 3.6), 100.2, 0.8, 0, "center"))
-    ytor.append(triangel(104.05, 44.0))
+    ytor.append(triangel(104.05, 42.8))
     sma_y = [g.UT_Y * 0.4, g.UT_Y * 0.6]
     for txt, y in (("GPS1", sma_y[1]), ("GPS2", sma_y[0])):
         ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5,

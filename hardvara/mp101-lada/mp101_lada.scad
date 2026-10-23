@@ -76,7 +76,7 @@ KANT = [
 
 // Öppningar i taket: [x0, x1, y0, y1, text, textläge [x, y], textvinkel]
 TOPP = [
-    [101.8, 106.3, 46.1, 58.0, "VINKEL J30", [99.5, 52], 90],
+    [101.8, 106.3, 46.1, 58.0, "VINKEL J30", [98.6, 52], 90],
     [144.5, 156.5, 39.2, 43.9, "I2C",        [150.5, 35.0], 0],
     [145.1, 153.7, 44.3, 64.9, "",           [0, 0], 0],     // LED-fönster
     [154.4, 158.9, 47.0, 61.0, "PROG",       [150.0, 68.0], 0],
@@ -227,7 +227,7 @@ module text_kropp(luft = 0) {
         translate([95.6, 0.8, 0]) text("+", size = 3.6, font = FONT, halign = "center");
         translate([100.2, 0.8, 0]) text("−", size = 3.6, font = FONT, halign = "center");
         // J30 stift 1 sitter närmast kontaktraden
-        translate([104.05, 44.0, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
+        translate([104.05, 42.8, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
         // SMA-hålen i kortänden: GPS1 på samma sida som X1, GPS2 som X2
         for (g = [["GPS1", SMA_Y[1]], ["GPS2", SMA_Y[0]]])
             translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1] - VAGG - SPEL, 0]) rotate(90)
