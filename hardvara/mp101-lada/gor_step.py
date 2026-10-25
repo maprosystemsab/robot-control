@@ -250,7 +250,10 @@ def lock(text3d):
     delar = [skal] + [cyl(*kort(*p), Z_STOLPE + 0.2, 8, TOPP_Z - Z_STOLPE - 0.2) for p in LOCK_SKRUV]
     for x0, x1 in g.SKYDD:   # utbuktningen framför kortkanten
         x, y = kort(x0, -g.FRAM_Y - g.SKYDD_D)
-        delar.append(box(x, y, 0, x1 - x0, g.SKYDD_D + 0.01, TOPP_Z))
+        b = box(x, y, 0, x1 - x0, g.SKYDD_D + g.TAK_FAS, TOPP_Z)
+        fas = [e for e in b.Edges if all(abs(v.Point.z - TOPP_Z) < 1e-6 for v in e.Vertexes)
+               and not all(abs(v.Point.y - (y + g.SKYDD_D + g.TAK_FAS)) < 1e-6 for v in e.Vertexes)]
+        delar.append(b.makeChamfer(g.TAK_FAS, fas))   # fram och på sidorna, som taket
     if SKARM:
         x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
         delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen

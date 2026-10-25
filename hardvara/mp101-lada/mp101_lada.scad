@@ -193,9 +193,13 @@ module lock_kropp() {
                 pa_kortet() for (p = SK_KLAMMOR)
                     translate([p[0], p[1], TAK_Z - SK_PCB_UNDER]) cylinder(d = 7, h = SK_PCB_UNDER + 0.1, $fn = 40);
             }
-            // utbuktningen framför kortkanten, från bottnens underkant till lockets ovansida
+            // utbuktningen framför kortkanten, från bottnens underkant till lockets ovansida; fasad
+            // fram och på sidorna som taket, och bakåt in över väggens fas så att ingen skåra blir
             pa_kortet() for (sk = SKYDD)
-                translate([sk[0], -FRAM_Y - SKYDD_D, 0]) cube([sk[1] - sk[0], SKYDD_D + 0.01, TOPP_Z]);
+                translate([sk[0], -FRAM_Y - SKYDD_D, 0]) hull() {
+                    cube([sk[1] - sk[0], SKYDD_D + TAK_FAS, TOPP_Z - TAK_FAS]);
+                    translate([TAK_FAS, TAK_FAS, 0]) cube([sk[1] - sk[0] - 2 * TAK_FAS, SKYDD_D, TOPP_Z]);
+                }
             // klackar ner mot bottnens pelare
             pa_kortet() for (p = LOCK_SKRUV)
                 translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = TOPP_Z - Z_STOLPE - 0.2, $fn = 40);
