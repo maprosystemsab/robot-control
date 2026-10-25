@@ -58,6 +58,14 @@ def rundad_lada(x, y, h, r=3.0, z=0.0):
     return b.makeFillet(r, kanter)
 
 
+def rundad_lada_fas(x, y, h, z=0.0, f=None):
+    """Som rundad_lada men med fas runt ovansidan (TAK_FAS i .scad)."""
+    f = g.TAK_FAS if f is None else f
+    b = rundad_lada(x, y, h, z=z)
+    topp = [e for e in b.Edges if all(abs(v.Point.z - (z + h)) < 1e-6 for v in e.Vertexes)]
+    return b.makeChamfer(f, topp)
+
+
 def fusion(former):
     s = former[0]
     for f in former[1:]:
@@ -233,7 +241,7 @@ def botten():
 
 def lock(text3d):
     z0 = g.BOTTEN_T + 1.2
-    skal = rundad_lada(g.UT_X, g.UT_Y, g.LOCK_H, z=z0)
+    skal = rundad_lada_fas(g.UT_X, g.UT_Y, g.LOCK_H, z=z0)
     inre = g.LOCK_H - g.TAK + 1
     for b in (box(g.VAGG, g.VAGG, z0 - 1, g.IN_X, g.IN_Y, inre),
               box(-1, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre),

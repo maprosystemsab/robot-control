@@ -67,7 +67,7 @@ SMA_Z = 10;             // SMA-skottens mitt över kortets ovansida (fritt från
 // Kontakter längs kontaktkanten: [namn, x0, x1, höjd, text, stift, stift 1-ände ("h" = hög x)]
 KANT = [
     ["eth",   1.2, 19.0, H_RJ45,  "ETH",       0, ""],
-    ["usb",  44.5, 69.7, H_USB,   "USB",       0, ""],
+    ["usb",  42.5, 71.7, H_USB,   "USB",       0, ""],   // 2 mm luft på var sida (provat 25/10)
     ["usbc", 71.7, 83.6, H_USBC,  "USB-C",     0, ""],
     ["plint",92.6,102.1, H_PLINT, "12V IN",    0, ""],
     ["can1",104.4,114.5, H_JST,   "CAN1",      4, "h"],
@@ -80,7 +80,7 @@ KANT = [
 
 // Utbuktning på locket framför kortkanten mellan Ethernet och USB (som i Upwis låda): skyddar
 // kortkanten där; även mellan USB-C och matningsplinten. [x0, x1] i kortets koordinater, sticker ut SKYDD_D framför lådans front.
-SKYDD = [[20.1, 43.4], [84.7, 91.5]];   // ETH–USB, USB-C–matningsplint
+SKYDD = [[20.1, 41.4], [84.7, 91.5]];   // ETH–USB, USB-C–matningsplint
 SKYDD_D = 2;
 
 // Öppningar i taket: [x0, x1, y0, y1, text, textläge [x, y], textvinkel]
@@ -112,6 +112,16 @@ SK_KLAMMOR = [[28, 22.5], [80, 22.5]];
 
 module rundad_lada(x, y, h, r = 3) {
     hull() for (i = [r, x - r], j = [r, y - r]) translate([i, j, 0]) cylinder(r = r, h = h, $fn = 32);
+}
+
+// Som rundad_lada men med fas runt ovansidan: locket skrivs ut upp och ner och takets första
+// lager pressas ut en aning (provat 25/10: synlig kant runt taket). Fasen döljer det.
+TAK_FAS = 0.8;
+module rundad_lada_fas(x, y, h, f = TAK_FAS) {
+    hull() {
+        rundad_lada(x, y, h - f);
+        translate([f, f, h - f]) rundad_lada(x - 2 * f, y - 2 * f, f, 3 - f);
+    }
 }
 
 // Kortets nollpunkt i lådans koordinater
@@ -169,7 +179,7 @@ module lock_kropp() {
         union() {
             // tak och långsidor; kortsidorna hör till bottnen (0,3 mm luft mot dem)
             translate([0, 0, BOTTEN_T + 1.2]) difference() {
-                rundad_lada(UT_X, UT_Y, LOCK_H);
+                rundad_lada_fas(UT_X, UT_Y, LOCK_H);
                 translate([VAGG, VAGG, -1]) cube([IN_X, IN_Y, LOCK_H - TAK + 1]);
                 translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
                 translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
@@ -298,4 +308,4 @@ else {
     if (SKARM) color("dimgray") klammor();
 }
 
-module lock_kropp_hel() { translate([0, 0, BOTTEN_T + 1.2]) rundad_lada(UT_X, UT_Y, LOCK_H); }
+module lock_kropp_hel() { translate([0, 0, BOTTEN_T + 1.2]) rundad_lada_fas(UT_X, UT_Y, LOCK_H); }
