@@ -3,7 +3,8 @@
 // Koordinater i mm från kortets hörn: x längs långsidan med kontaktraden (0 = Ethernet-änden),
 // y in från kontaktkanten. Lägen uppmätta ur Upwis placeringsritning (MP101_323_TOP_CAM).
 // Höjderna uppmätta på kort 2 (2026-10-23), från kortets underkant minus kortets tjocklek.
-// Bottnen har båda kortsidorna (SMA-skotten sitter i den ena), locket är tak + långsidor.
+// Bottnen har kortsidorna (SMA-skotten sitter i den ena), bakväggen och framväggens hörn, så att
+// den står emot att slå sig. Locket är tak + framväggen mellan kontakterna.
 // Montering: kortet i bottnen (4 × M3×6), SMA-kablarna, sist locket (4 × M3×12 i pelarna vid
 // kortsidorna). Allt skruvas uppifrån och gängar sig i plasten (hål 3,0 mm).
 //
@@ -55,7 +56,7 @@ BOTTEN_T = 2.4;
 BOTTEN_H = BOTTEN_T + H_UNDER;          // bottenplattans överkant = kortets underkant
 LOCK_H = KORT_T + H_LOCK_INV + TAK;     // lockets väggar står på bottnens kant
 TOPP_Z = BOTTEN_T + 1.2 + LOCK_H;       // lockets ovansida
-TAK_Z = TOPP_Z - TAK;                   // takets undersida = kortsidornas överkant
+TAK_Z = TOPP_Z - TAK;                   // takets undersida = bottenväggarnas överkant
 Z_STOLPE = TAK_Z - 3;                   // pelarna slutar här, locket har en klack ner till dem
 // lockets skruvar i pelare som sitter ihop med kortsidorna (kortets koordinater)
 LOCK_SKRUV = [for (x = [-SPEL - ANDE_V + 3.5, KORT_X + SPEL + ANDE - 3.5], y = [12, 83]) [x, y]];
@@ -127,16 +128,24 @@ module rundad_lada_fas(x, y, h, f = TAK_FAS) {
 // Kortets nollpunkt i lådans koordinater
 module pa_kortet() { translate([VAGG + SPEL + ANDE_V, FRAM_Y, 0]) children(); }
 
-// Kortsidornas väggar (ingår i bottnen) och lockets ram (resten)
-module kortsidor(h) {
+// Bottnens höga väggar: kortsidorna, bakväggen och framväggens hörn utanför kortet (kortet sänks
+// rakt ner mellan hörnen). Locket har resten av framväggen.
+FRAM_HORN = [[0, VAGG + ANDE_V], [UT_X - VAGG - ANDE, UT_X]];   // [x0, x1] i lådans koordinater
+module bottens_vaggar(h) {
     intersection() {
         rundad_lada(UT_X, UT_Y, h);
         union() {
             cube([VAGG, UT_Y, h]);
             translate([UT_X - VAGG, 0, 0]) cube([VAGG, UT_Y, h]);
+            translate([0, UT_Y - VAGG, 0]) cube([UT_X, VAGG, h]);
+            for (f = FRAM_HORN) translate([f[0], 0, 0]) cube([f[1] - f[0], VAGG, h]);
         }
     }
 }
+
+// Ventilation i bakväggen; springorna slutar 2 mm under taket så att väggen har en hel list överst
+VENT_Z = BOTTEN_H + KORT_T + 2.5;
+VENT_H = SKARM ? 5.5 : TAK_Z - 2 - VENT_Z;
 
 module botten() {
     difference() {
@@ -147,7 +156,10 @@ module botten() {
                 rundad_lada(UT_X, UT_Y, BOTTEN_T + 1.2);
                 translate([VAGG, VAGG, 0]) cube([IN_X, IN_Y, 10]);
             }
-            kortsidor(TAK_Z);
+            bottens_vaggar(TAK_Z);
+            // list i bakväggen som skärmkortets bakkant vilar på
+            if (SKARM) pa_kortet() translate([SK_MITT[0] - 45, KORT_Y + SPEL - 2.4, TAK_Z - SK_PCB_UNDER - 2])
+                cube([90, 2.5, 2]);
             // framkant under kortkanten (lockets framvägg slutar strax ovanför kortet)
             intersection() {
                 rundad_lada(UT_X, UT_Y, BOTTEN_H - 0.2);
@@ -171,28 +183,26 @@ module botten() {
         // antenner X1/X2 i kortsidan vid DI1 (SMA-skott 6,5 mm)
         for (y = SMA_Y)
             translate([UT_X - VAGG - 1, y, BOTTEN_H + KORT_T + SMA_Z]) rotate([0, 90, 0]) cylinder(d = 6.6, h = VAGG + 2, $fn = 40);
+        for (x = [UT_X * 0.12 : 6 : UT_X * 0.88])
+            translate([x, UT_Y - VAGG - 1, VENT_Z]) cube([3, VAGG + 2, VENT_H]);
     }
 }
 
 module lock_kropp() {
     difference() {
         union() {
-            // tak och långsidor; kortsidorna hör till bottnen (0,3 mm luft mot dem)
+            // tak och framvägg; bottnens väggar går upp till taket (0,3 mm luft mot dem)
             translate([0, 0, BOTTEN_T + 1.2]) difference() {
                 rundad_lada_fas(UT_X, UT_Y, LOCK_H);
                 translate([VAGG, VAGG, -1]) cube([IN_X, IN_Y, LOCK_H - TAK + 1]);
                 translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
                 translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
+                translate([-1, UT_Y - VAGG - 0.3, -1]) cube([UT_X + 2, VAGG + 1.3, LOCK_H - TAK + 1]);
+                for (f = FRAM_HORN) translate([f[0] - 0.3, -1, -1]) cube([f[1] - f[0] + 0.6, VAGG + 1.3, LOCK_H - TAK + 1]);
             }
-            
-            if (SKARM) {
-                // list i bakväggen som skärmkortets bakkant vilar på
-                pa_kortet() translate([SK_MITT[0] - 45, KORT_Y + SPEL - 2.4, TAK_Z - SK_PCB_UNDER - 2])
-                    cube([90, 2.5, 2]);
-                // klackar för klämmorna fram
-                pa_kortet() for (p = SK_KLAMMOR)
-                    translate([p[0], p[1], TAK_Z - SK_PCB_UNDER]) cylinder(d = 7, h = SK_PCB_UNDER + 0.1, $fn = 40);
-            }
+            // klackar för skärmklämmorna fram
+            if (SKARM) pa_kortet() for (p = SK_KLAMMOR)
+                translate([p[0], p[1], TAK_Z - SK_PCB_UNDER]) cylinder(d = 7, h = SK_PCB_UNDER + 0.1, $fn = 40);
             // utbuktningen framför kortkanten, från bottnens underkant till lockets ovansida; fasad
             // fram och på sidorna som taket, och bakåt in över väggens fas så att ingen skåra blir
             pa_kortet() for (sk = SKYDD)
@@ -214,9 +224,6 @@ module lock_kropp() {
         pa_kortet() for (o = TOPP)
             translate([o[0] - 0.8, o[2] - 0.8, 0]) cube([o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100]);
         if (SKARM) {
-            // ventilation i bakväggen, under listen
-            for (x = [UT_X * 0.12 : 6 : UT_X * 0.88])
-                translate([x, UT_Y - VAGG - 1, BOTTEN_H + KORT_T + 2.5]) cube([3, VAGG + 2, 5.5]);
             // skärmfönster med fas utåt, och ficka för glaset underifrån
             pa_kortet() translate([SK_MITT[0], SK_MITT[1], TAK_Z - 0.01]) hull() {
                 translate([-SK_AKTIV[0] / 2 - 0.5, -SK_AKTIV[1] / 2 - 0.5, 0]) cube([SK_AKTIV[0] + 1, SK_AKTIV[1] + 1, 0.01]);
@@ -227,10 +234,6 @@ module lock_kropp() {
             // klämmornas skruvar (M3×8)
             pa_kortet() for (p = SK_KLAMMOR)
                 translate([p[0], p[1], TAK_Z - SK_PCB_UNDER - 1]) cylinder(d = M3_GANG, h = SK_PCB_UNDER, $fn = 32);
-        } else {
-            // ventilation i bakväggen (taket har loggan)
-            for (x = [UT_X * 0.12 : 6 : UT_X * 0.88])
-                translate([x, UT_Y - VAGG - 1, BOTTEN_H + KORT_T + 2.5]) cube([3, VAGG + 2, 10]);
         }
         // lockets skruvar: fritt hål och försänkt skalle
         pa_kortet() for (p = LOCK_SKRUV) {

@@ -213,18 +213,32 @@ SMA_Y = [y + g.FRAM_Y for y in g.SMA_KORT_Y]
 ORON = [(x, y) for x in (-8, g.UT_X + 8) for y in (g.UT_Y * 0.25, g.UT_Y * 0.75)]
 
 
-def kortsidor(h):
-    sidor = box(0, 0, 0, g.VAGG, g.UT_Y, h).fuse(box(g.UT_X - g.VAGG, 0, 0, g.VAGG, g.UT_Y, h))
-    return rundad_lada(g.UT_X, g.UT_Y, h).common(sidor)
+def bottens_vaggar(h):
+    sidor = [box(0, 0, 0, g.VAGG, g.UT_Y, h), box(g.UT_X - g.VAGG, 0, 0, g.VAGG, g.UT_Y, h),
+             box(0, g.UT_Y - g.VAGG, 0, g.UT_X, g.VAGG, h)]
+    sidor += [box(x0, 0, 0, x1 - x0, g.VAGG, h) for x0, x1 in g.FRAM_HORN]
+    return rundad_lada(g.UT_X, g.UT_Y, h).common(fusion(sidor))
+
+
+def ventilation():
+    """Springorna i bakväggen (bottnen)."""
+    hal, x = [], g.UT_X * 0.12
+    while x <= g.UT_X * 0.88 + 1e-9:
+        hal.append(box(x, g.UT_Y - g.VAGG - 1, g.VENT_Z, 3, g.VAGG + 2, g.VENT_H))
+        x += 6
+    return hal
 
 
 def botten():
     delar = [rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_T),
              rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_T + 1.2).cut(box(g.VAGG, g.VAGG, 0, g.IN_X, g.IN_Y, 10)),
-             kortsidor(TAK_Z),
+             bottens_vaggar(TAK_Z),
              rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_H - 0.2).common(box(0, 0, 0, g.UT_X, g.VAGG, g.BOTTEN_H - 0.2))]
     delar += [cyl(*kort(*h), 0, 8, g.BOTTEN_H) for h in g.HAL]
     delar += [cyl(*kort(*p), 0, 8, Z_STOLPE) for p in LOCK_SKRUV]
+    if SKARM:
+        x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
+        delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen
     for x, y in ORON:
         kant = box(0 if x < 0 else g.UT_X - 1, y - 7, 0, 1, 14, g.BOTTEN_T)
         delar.append(cyl(x, y, 0, 14, g.BOTTEN_T).fuse(kant).fuse(
@@ -234,6 +248,7 @@ def botten():
     hal += [cyl(*kort(*p), 1.0, g.M3_GANG, 100) for p in LOCK_SKRUV]
     hal += [cyl(x, y, -1, 5.2, 10) for x, y in ORON]
     hal += [cyl(g.UT_X - g.VAGG - 1, y, g.BOTTEN_H + g.KORT_T + g.SMA_Z, 6.6, g.VAGG + 2, Vector(1, 0, 0)) for y in SMA_Y]
+    hal += ventilation()
     for h in hal:
         s = s.cut(h)
     return s.removeSplitter()
@@ -245,7 +260,9 @@ def lock(text3d):
     inre = g.LOCK_H - g.TAK + 1
     for b in (box(g.VAGG, g.VAGG, z0 - 1, g.IN_X, g.IN_Y, inre),
               box(-1, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre),
-              box(g.UT_X - g.VAGG - 0.3, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre)):
+              box(g.UT_X - g.VAGG - 0.3, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre),
+              box(-1, g.UT_Y - g.VAGG - 0.3, z0 - 1, g.UT_X + 2, g.VAGG + 1.3, inre),   # bakväggen hör till bottnen
+              *[box(x0 - 0.3, -1, z0 - 1, x1 - x0 + 0.6, g.VAGG + 1.3, inre) for x0, x1 in g.FRAM_HORN]):
         skal = skal.cut(b)
     delar = [skal] + [cyl(*kort(*p), Z_STOLPE + 0.2, 8, TOPP_Z - Z_STOLPE - 0.2) for p in LOCK_SKRUV]
     for x0, x1 in g.SKYDD:   # utbuktningen framför kortkanten
@@ -255,8 +272,6 @@ def lock(text3d):
                and not all(abs(v.Point.y - (y + g.SKYDD_D + g.TAK_FAS)) < 1e-6 for v in e.Vertexes)]
         delar.append(b.makeChamfer(g.TAK_FAS, fas))   # fram och på sidorna, som taket
     if SKARM:
-        x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
-        delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen
         delar += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER, 7, g.SK_PCB_UNDER + 0.1) for p in g.SK_KLAMMOR]
     s = fusion(delar)
     hal = [box(-1, -1, 0, g.UT_X + 2, g.VAGG + 1.1, g.BOTTEN_H + g.KORT_T + 0.8)]   # framväggen slutar över kortet
@@ -267,10 +282,6 @@ def lock(text3d):
         x, y = kort(o[0] - 0.8, o[2] - 0.8)
         hal.append(box(x, y, 0, o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100))
     if SKARM:
-        x = g.UT_X * 0.12
-        while x <= g.UT_X * 0.88 + 1e-9:     # ventilation i bakväggen
-            hal.append(box(x, g.UT_Y - g.VAGG - 1, g.BOTTEN_H + g.KORT_T + 2.5, 3, g.VAGG + 2, 5.5))
-            x += 6
         # fönster med fas utåt (stympad pyramid) och ficka för glaset
         mx, my = kort(*g.SK_MITT)
         nere = Part.makePolygon([Vector(mx + sx * (g.SK_AKTIV[0] / 2 + 0.5), my + sy * (g.SK_AKTIV[1] / 2 + 0.5), TAK_Z - 0.01)
@@ -281,11 +292,6 @@ def lock(text3d):
         x, y = kort(g.SK_MITT[0] - g.SK_GLAS[0] / 2 - 0.2, g.SK_MITT[1] + g.SK_GLAS_DY - g.SK_GLAS[1] / 2 - 0.2)
         hal.append(box(x, y, TAK_Z - 1, g.SK_GLAS[0] + 0.4, g.SK_GLAS[1] + 0.4, 1 + g.SK_FICKA))
         hal += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER - 1, g.M3_GANG, g.SK_PCB_UNDER) for p in g.SK_KLAMMOR]
-    else:
-        x = g.UT_X * 0.12
-        while x <= g.UT_X * 0.88 + 1e-9:     # ventilation i bakväggen (taket har loggan)
-            hal.append(box(x, g.UT_Y - g.VAGG - 1, g.BOTTEN_H + g.KORT_T + 2.5, 3, g.VAGG + 2, 10))
-            x += 6
     for p in LOCK_SKRUV:
         hal.append(cyl(*kort(*p), 0, g.M3_FRI, 100))
         hal.append(cyl(*kort(*p), TOPP_Z - 3, 6.4, 10))
