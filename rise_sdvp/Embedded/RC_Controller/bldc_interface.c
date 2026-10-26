@@ -149,6 +149,22 @@ void bldc_interface_send_packet(unsigned char *data, unsigned int len) {
  * @param len
  * The length of the buffer in bytes.
  */
+// Bytes needed by the fields selected in mask, given the size of each field (bit 0 first).
+// Used to reject replies that are too short before any field is read.
+static unsigned int mask_payload_len(uint32_t mask, const uint8_t *sizes, int count) {
+	unsigned int n = 0;
+	for (int b = 0; b < count; b++) {
+		if (mask & ((uint32_t)1 << b)) {
+			n += sizes[b];
+		}
+	}
+	return n;
+}
+
+static const uint8_t setup_value_sizes[] = {2, 2, 4, 4, 2, 4, 4, 2, 2, 4, 4, 4, 4, 4, 4, 4, 1, 1, 1, 4};
+static const uint8_t selective_value_sizes[] = {2, 2, 4, 4, 4, 4, 2, 4, 2, 4, 4, 4, 4, 4, 4, 1, 1, 1, 2, 2, 2};
+static const uint8_t stats_sizes[] = {4, 4, 4, 4, 4, 4, 4, 4};
+
 void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 	// Return immediately if buffer is empty
 	if (!len) {
@@ -188,6 +204,10 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 			fw_minor = data[ind++];
 			fwinfo.fw_major = fw_major;
 			fwinfo.fw_minor = fw_minor;
+		} else if (len < 3) {
+			// Too short for either format
+			fw_major = -1;
+			fw_minor = -1;
 		} else {
 			// Modern format: major, minor, hw_name(nullstr), uuid(12),
 			// pairing_done, test_ver, hw_type, custom_cfg_num,
@@ -224,7 +244,7 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 			}
 
 			const char *s2 = (const char*)(data + ind);
-			const char *e2 = memchr(s2, '\0', (size_t)(len - ind));
+			const char *e2 = ((unsigned int)ind < len) ? memchr(s2, '\0', (size_t)(len - ind)) : 0;
 			if (e2 != 0 && (size_t)(e2 - s2) < sizeof(fwinfo.fw_name)) {
 				strncpy(fwinfo.fw_name, s2, sizeof(fwinfo.fw_name) - 1);
 				ind += (int)(e2 - s2) + 1;
@@ -307,6 +327,9 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 		if (id == COMM_GET_VALUES_SETUP_SELECTIVE) {
 			mask = buffer_get_uint32(data, &ind);
 		}
+		if ((unsigned int)ind + mask_payload_len(mask, setup_value_sizes, sizeof(setup_value_sizes)) > len) {
+			break;	// reply shorter than the fields it claims to contain
+		}
 
 		if (mask & ((uint32_t)1 << 0)) {
 			setup_values.temp_mos = buffer_get_float16(data, 1e1, &ind);
@@ -383,6 +406,9 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 			break;
 		}
 		uint32_t mask = buffer_get_uint32(data, &ind);
+		if ((unsigned int)ind + mask_payload_len(mask, selective_value_sizes, sizeof(selective_value_sizes)) > len) {
+			break;	// reply shorter than the fields it claims to contain
+		}
 		mc_values_selective v = {0}; // Initialize all fields to zero
 
 		if (mask & ((uint32_t)1 << 0))  v.temp_fet           = buffer_get_float16(data, 1e1, &ind);
@@ -436,6 +462,9 @@ void bldc_interface_process_packet(unsigned char *data, unsigned int len) {
 		}
 		ind = 0;
 		uint32_t mask = buffer_get_uint32(data, &ind);
+		if ((unsigned int)ind + mask_payload_len(mask, stats_sizes, sizeof(stats_sizes)) > len) {
+			break;	// reply shorter than the fields it claims to contain
+		}
 		mc_stats st = {0}; // Initialize all fields to zero
 
 		if (mask & ((uint32_t)1 << 0)) st.speed_avg      = buffer_get_float32_auto(data, &ind);
