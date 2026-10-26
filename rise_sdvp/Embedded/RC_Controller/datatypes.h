@@ -1169,6 +1169,83 @@ typedef struct {
     uint8_t vesc_id;
 } mc_values;
 
+// Setup values (reply to COMM_GET_VALUES_SETUP / COMM_GET_VALUES_SETUP_SELECTIVE)
+typedef struct {
+	float temp_mos;					// bit 0
+	float temp_motor;				// bit 1
+	float current_tot;				// bit 2
+	float current_in_tot;			// bit 3
+	float duty_now;					// bit 4
+	float rpm;						// bit 5
+	float speed;					// bit 6
+	float v_in;						// bit 7
+	float battery_level;			// bit 8  (0.0 - 1.0, from VESC firmware)
+	float ah_tot;					// bit 9
+	float ah_charge_tot;			// bit 10
+	float wh_tot;					// bit 11
+	float wh_charge_tot;			// bit 12
+	float distance;					// bit 13
+	float distance_abs;				// bit 14
+	float pid_pos;					// bit 15
+	uint8_t fault_code;				// bit 16
+	uint8_t vesc_id;					// bit 17
+	uint8_t num_vescs;				// bit 18
+	float wh_batt_left;				// bit 19
+} mc_setup_values;
+
+// Selective real-time values (reply to COMM_GET_VALUES_SELECTIVE, packet 50)
+// Verified against bldc master comm/commands.c. Bits 2-5 are read-and-reset
+// averaged currents in the firmware, so each request consumes them.
+typedef struct {
+	float temp_fet;					// bit 0
+	float temp_motor;				// bit 1
+	float avg_current_motor;		// bit 2 (read-and-reset)
+	float avg_current_in;			// bit 3 (read-and-reset)
+	float avg_id;					// bit 4 (read-and-reset)
+	float avg_iq;					// bit 5 (read-and-reset)
+	float duty_now;					// bit 6
+	float rpm;						// bit 7
+	float v_in;						// bit 8
+	float amp_hours;				// bit 9
+	float amp_hours_charged;		// bit 10
+	float watt_hours;				// bit 11
+	float watt_hours_charged;		// bit 12
+	int tachometer;					// bit 13
+	int tachometer_abs;				// bit 14
+	uint8_t fault_code;				// bit 15
+	uint8_t vesc_id;					// bit 16
+	uint8_t num_vescs;				// bit 17
+	float temp_mos_1, temp_mos_2, temp_mos_3;	// bit 18-20
+} mc_values_selective;
+
+// Statistics (reply to COMM_GET_STATS, mask u16 in the request).
+// The reply echoes the mask as u32, then float32_auto fields.
+typedef struct {
+	float speed_avg;		// bit 0
+	float speed_max;		// bit 1
+	float power_avg;		// bit 2
+	float power_max;		// bit 3
+	float current_avg;		// bit 4
+	float current_max;		// bit 5
+	float temp_mosfet_avg;	// bit 6
+	float temp_mosfet_max;	// bit 7
+} mc_stats;
+
+// Power switch (PSW) status. Reply (verified): id int16, psws_num int16,
+// age f32auto, v_in f32auto, v_out f32auto, temp f32auto,
+// is_out_on u8, is_pch_on u8, is_dsc_on u8.
+typedef struct {
+	int id;
+	int psws_num;
+	float age_s;
+	float v_in;
+	float v_out;
+	float temp;
+	uint8_t is_out_on;
+	uint8_t is_pch_on;
+	uint8_t is_dsc_on;
+} psw_status_info;
+
 // Communication commands
 typedef enum {
 	COMM_FW_VERSION = 0,
@@ -1243,6 +1320,25 @@ typedef enum {
 	COMM_BM_REBOOT,
 	COMM_BM_DISCONNECT
 } COMM_PACKET_ID;
+
+// Packet IDs that do not exist in the 3.x-era enum above. Explicit
+// numbers, verified against the bldc master enum (counted from
+// COMM_FW_VERSION = 0). Kept as defines to avoid renumbering the enum.
+#define COMM_APP_DISABLE_OUTPUT_NEW	63
+#define COMM_GET_IMU_DATA_NEW		65
+#define COMM_SET_BATTERY_CUT_NEW		86
+#define COMM_BMS_GET_VALUES_NEW		96
+#define COMM_PSW_GET_STATUS_NEW		111
+#define COMM_PSW_SWITCH_NEW			112
+#define COMM_GET_BATTERY_CUT_NEW		115
+#define COMM_GET_STATS_NEW			128
+#define COMM_RESET_STATS_NEW			129
+#define COMM_LOG_START_NEW			145
+#define COMM_LOG_STOP_NEW			146
+#define COMM_GET_GNSS_NEW			150
+#define COMM_SHUTDOWN_NEW			156
+#define COMM_FW_INFO_NEW			157
+#define COMM_MOTOR_ESTOP_NEW		159
 
 // ============== Decawave Datatypes ================== //
 
