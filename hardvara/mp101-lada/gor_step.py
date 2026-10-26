@@ -188,11 +188,12 @@ def text_2d():
                 elif not can and nr == 1:
                     ytor.append(triangel(px, 0.2))
     for o in g.TOPP:
-        if o[4]:
+        if o[4] and not (SKARM and o[4] == "VINKEL J30"):
             ytor.append(placera(textytor(o[4], 2.8), o[5][0], o[5][1], o[6], "center", "center"))
     ytor.append(placera(textytor("+", 3.6), 95.6, 0.8, 0, "center"))
     ytor.append(placera(textytor("−", 3.6), 100.2, 0.8, 0, "center"))
-    ytor.append(triangel(104.05, 42.8))
+    if not SKARM:
+        ytor.append(triangel(104.05, 42.8))
     for txt, y in (("GPS1", g.SMA_KORT_Y[1]), ("GPS2", g.SMA_KORT_Y[0])):
         ytor.append(placera(textytor(txt, 2.8), g.KORT_X + g.SPEL + g.ANDE / 2 - 0.5, y, 90, "center"))
     if SKARM:
@@ -208,7 +209,7 @@ def text_2d():
 # ---- Kroppar ----
 TOPP_Z = g.BOTTEN_T + 1.2 + g.LOCK_H
 TAK_Z = TOPP_Z - g.TAK
-Z_STOLPE = TAK_Z - 3
+Z_STOLPE = g.VAGG_Z - 3
 SMA_Y = [y + g.FRAM_Y for y in g.SMA_KORT_Y]
 ORON = [(x, y) for x in (-8, g.UT_X + 8) for y in (g.UT_Y * 0.25, g.UT_Y * 0.75)]
 
@@ -232,13 +233,10 @@ def ventilation():
 def botten():
     delar = [rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_T),
              rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_T + 1.2).cut(box(g.VAGG, g.VAGG, 0, g.IN_X, g.IN_Y, 10)),
-             bottens_vaggar(TAK_Z),
+             bottens_vaggar(g.VAGG_Z),
              rundad_lada(g.UT_X, g.UT_Y, g.BOTTEN_H - 0.2).common(box(0, 0, 0, g.UT_X, g.VAGG, g.BOTTEN_H - 0.2))]
     delar += [cyl(*kort(*h), 0, 8, g.BOTTEN_H) for h in g.HAL]
     delar += [cyl(*kort(*p), 0, 8, Z_STOLPE) for p in LOCK_SKRUV]
-    if SKARM:
-        x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
-        delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen
     for x, y in ORON:
         kant = box(0 if x < 0 else g.UT_X - 1, y - 7, 0, 1, 14, g.BOTTEN_T)
         delar.append(cyl(x, y, 0, 14, g.BOTTEN_T).fuse(kant).fuse(
@@ -258,13 +256,17 @@ def lock(text3d):
     z0 = g.BOTTEN_T + 1.2
     skal = rundad_lada_fas(g.UT_X, g.UT_Y, g.LOCK_H, z=z0)
     inre = g.LOCK_H - g.TAK + 1
-    for b in (box(g.VAGG, g.VAGG, z0 - 1, g.IN_X, g.IN_Y, inre),
-              box(-1, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre),
-              box(g.UT_X - g.VAGG - 0.3, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, inre),
-              box(-1, g.UT_Y - g.VAGG - 0.3, z0 - 1, g.UT_X + 2, g.VAGG + 1.3, inre),   # bakväggen hör till bottnen
-              *[box(x0 - 0.3, -1, z0 - 1, x1 - x0 + 0.6, g.VAGG + 1.3, inre) for x0, x1 in g.FRAM_HORN]):
+    vagg = g.VAGG_Z - z0 + 1   # bottnens väggar; därovan (med skärm) har locket hel vägg runt om
+    spar = [box(-1, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, vagg),
+            box(g.UT_X - g.VAGG - 0.3, -1, z0 - 1, g.VAGG + 1.3, g.UT_Y + 2, vagg),
+            box(-1, g.UT_Y - g.VAGG - 0.3, z0 - 1, g.UT_X + 2, g.VAGG + 1.3, vagg),   # bakväggen hör till bottnen
+            *[box(x0 - 0.3, -1, z0 - 1, x1 - x0 + 0.6, g.VAGG + 1.3, vagg) for x0, x1 in g.FRAM_HORN]]
+    for b in [box(g.VAGG, g.VAGG, z0 - 1, g.IN_X, g.IN_Y, inre)] + spar:
         skal = skal.cut(b)
     delar = [skal] + [cyl(*kort(*p), Z_STOLPE + 0.2, 8, TOPP_Z - Z_STOLPE - 0.2) for p in LOCK_SKRUV]
+    for x0, y0, x1, y1 in g.TUNGOR:   # tungan innanför bottnens väggar, med fäste uppåt
+        delar.append(box(x0, y0, g.VAGG_Z - g.TUNGA_D, x1 - x0, y1 - y0, g.TUNGA_D + 0.01))
+        delar.append(box(x0 - 1.5, y0 - 1.5, g.VAGG_Z, x1 - x0 + 3, y1 - y0 + 3, 1))
     for x0, x1 in g.SKYDD:   # utbuktningen framför kortkanten
         x, y = kort(x0, -g.FRAM_Y - g.SKYDD_D)
         b = box(x, y, 0, x1 - x0, g.SKYDD_D + g.TAK_FAS, TOPP_Z)
@@ -272,13 +274,18 @@ def lock(text3d):
                and not all(abs(v.Point.y - (y + g.SKYDD_D + g.TAK_FAS)) < 1e-6 for v in e.Vertexes)]
         delar.append(b.makeChamfer(g.TAK_FAS, fas))   # fram och på sidorna, som taket
     if SKARM:
+        x, y = kort(g.SK_MITT[0] - 45, g.KORT_Y + g.SPEL - 2.4)
+        delar.append(box(x, y, TAK_Z - g.SK_PCB_UNDER - 2, 90, 2.5, 2))          # list i bakväggen
         delar += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER, 7, g.SK_PCB_UNDER + 0.1) for p in g.SK_KLAMMOR]
     s = fusion(delar)
     hal = [box(-1, -1, 0, g.UT_X + 2, g.VAGG + 1.1, g.BOTTEN_H + g.KORT_T + 0.8)]   # framväggen slutar över kortet
+    hal += spar   # klackarna får inte ta i bottnens väggar
     for _n, x0, x1, h, *_ in g.KANT:
         x, y = kort(x0 - 0.6, -g.FRAM_Y - 1)
         hal.append(box(x, y, g.BOTTEN_H - 0.5, x1 - x0 + 1.2, g.VAGG + 3, g.KORT_T + h + 1.0))
     for o in g.TOPP:
+        if SKARM and o[4] == "VINKEL J30":   # J30 hamnar under skärmen
+            continue
         x, y = kort(o[0] - 0.8, o[2] - 0.8)
         hal.append(box(x, y, 0, o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100))
     if SKARM:
@@ -294,7 +301,7 @@ def lock(text3d):
         hal += [cyl(*kort(*p), TAK_Z - g.SK_PCB_UNDER - 1, g.M3_GANG, g.SK_PCB_UNDER) for p in g.SK_KLAMMOR]
     for p in LOCK_SKRUV:
         hal.append(cyl(*kort(*p), 0, g.M3_FRI, 100))
-        hal.append(cyl(*kort(*p), TOPP_Z - 3, 6.4, 10))
+        hal.append(cyl(*kort(*p), TOPP_Z - 3 - max(0, g.LOCK_FORL - 1.5), 6.5, 10 + g.LOCK_FORL))
     for h in hal:
         s = s.cut(h)
     s = s.cut(text3d)

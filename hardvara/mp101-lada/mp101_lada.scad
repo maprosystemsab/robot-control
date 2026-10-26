@@ -9,10 +9,12 @@
 // kortsidorna). Allt skruvas uppifrån och gängar sig i plasten (hål 3,0 mm).
 //
 // SKARM = true: locket får en inbyggd Waveshare 4,3" DSI-pekskärm (800×480, samma som MacBot)
-// över kortets vänstra halva. Locket blir 4 mm högre, Ethernet-änden 7 mm längre och
-// ventilationen flyttas till bakväggen. Skärmen läggs i en ficka i takets undersida, bakkanten
-// under en list i bakväggen, framkanten hålls av två klämmor (del "klammor", 2 × M3×8).
-// Skärmens M2.5-distanser monteras inte. Skärmmått ur Waveshares STEP (4_3inch-dsi-lcd-V1).
+// över kortets vänstra halva. Bottnen är densamma (standarddel); skärmlocket har en 19 mm
+// hög vägg runt om ovanpå bottnens väggar. Skärmen läggs i en ficka i takets undersida,
+// bakkanten på en list i lockets bakvägg, framkanten hålls av två klämmor (del "klammor",
+// 2 × M3×8). J30-fönstret utgår (under skärmen). Skärmens M2.5-distanser monteras inte.
+// Skärmmått ur Waveshares STEP (4_3inch-dsi-lcd-V1).
+// Båda locken har en tunga innanför bottnens väggar som låser locket i sidled.
 //
 // Exportera delarna (del = "botten", "lock", "text", "streck", "klammor"):
 //   openscad -D 'del="botten"' -D SKARM=true -o botten.stl mp101_lada.scad
@@ -28,7 +30,10 @@ KORT_T = 1.6;
 HAL = [[4.0, 90.6], [156.0, 90.6], [155.6, 13.4], [85.8, 4.6]];   // M3-hål i kortet
 
 // ---- Höjder över kortets ovansida (uppmätta) ----
-H_LOCK_INV = SKARM ? 20 : 16;   // fri höjd under locket (USB-A är högst, 14,4; skärmen tar 10,4)
+// Bottnen är samma för båda locken (standarddel). Skärmlocket är högre: hel vägg runt om
+// ovanpå bottnens väggar (provat 26/10: 20 mm fri höjd var 15 mm för lite, skärmen tog i CM5).
+H_LOCK_INV = 16;        // bottnens väggar: fri höjd över kortet (USB-A är högst, 14,4)
+LOCK_FORL = SKARM ? 19 : 0;     // skärmlocket: 16 + 19 = 35 mm fri höjd under taket
 H_RJ45 = 11.4;
 H_USB = 14.4;
 H_USBC = 6.5;           // hålets höjd: kontaktens gjutna hylsa (uttaget självt är 3,4)
@@ -43,7 +48,7 @@ VAGG = 2.2;
 TAK = 2.0;
 SPEL = 0.6;             // luft runt kortet
 ANDE = 9;               // extra plats i varje kortände för lockets skruvar
-ANDE_V = SKARM ? ANDE + 7 : ANDE;   // Ethernet-änden: med skärm ryms den mellan lockets skruvar
+ANDE_V = ANDE;          // Ethernet-änden (samma botten för båda locken)
 TEXT_DJUP = 0.48;       // inlagd text i taket (egen färg): 3 hela lager à 0,16 mm
 FONT = "DejaVu Sans:style=Bold";
 
@@ -54,10 +59,11 @@ IN_Y = UT_Y - 2 * VAGG;
 UT_X = IN_X + 2 * VAGG;
 BOTTEN_T = 2.4;
 BOTTEN_H = BOTTEN_T + H_UNDER;          // bottenplattans överkant = kortets underkant
-LOCK_H = KORT_T + H_LOCK_INV + TAK;     // lockets väggar står på bottnens kant
+VAGG_Z = BOTTEN_T + 1.2 + KORT_T + H_LOCK_INV;   // bottenväggarnas överkant
+LOCK_H = KORT_T + H_LOCK_INV + LOCK_FORL + TAK;   // lockets väggar står på bottnens kant
 TOPP_Z = BOTTEN_T + 1.2 + LOCK_H;       // lockets ovansida
-TAK_Z = TOPP_Z - TAK;                   // takets undersida = bottenväggarnas överkant
-Z_STOLPE = TAK_Z - 3;                   // pelarna slutar här, locket har en klack ner till dem
+TAK_Z = TOPP_Z - TAK;                   // takets undersida (= VAGG_Z utan skärm)
+Z_STOLPE = VAGG_Z - 3;                  // pelarna slutar här, locket har en klack ner till dem
 // lockets skruvar i pelare som sitter ihop med kortsidorna (kortets koordinater)
 LOCK_SKRUV = [for (x = [-SPEL - ANDE_V + 3.5, KORT_X + SPEL + ANDE - 3.5], y = [12, 83]) [x, y]];
 // SMA-skotten i kortsidan vid DI1 (kortets y): GPS2 vid X2, GPS1 vid X1, båda fria från PROG-hålet
@@ -106,7 +112,8 @@ LOGGA = SKARM ? [118.5, 64.5, 90, 60, 0.1] : [45, 62, 0, 90, 0.05];
 SK_GLAS = [106.1, 67.8];               // glasets yttermått
 SK_AKTIV = [95.5, 54.4];               // synlig bildyta, centrerad i SK_MITT
 SK_GLAS_DY = -2.37;                    // glasets mitt ligger så här mycket mot kontaktkanten
-SK_MITT = [-7.6 + SK_GLAS[0] / 2, 27 + SK_GLAS[1] / 2 - SK_GLAS_DY];
+SK_MITT = [-1.6 + SK_GLAS[0] / 2,   // glaset börjar 0,5 mm från vänstra skruvklackarna
+           27 + SK_GLAS[1] / 2 - SK_GLAS_DY];
 SK_FICKA = 0.8;                        // glaset sjunker in så här mycket i takets undersida
 SK_PCB_UNDER = 8.14 - SK_FICKA;        // skärmkortets baksida under takets undersida
 SK_KLAMMOR = [[28, 22.5], [80, 22.5]];
@@ -145,7 +152,7 @@ module bottens_vaggar(h) {
 
 // Ventilation i bakväggen; springorna slutar 2 mm under taket så att väggen har en hel list överst
 VENT_Z = BOTTEN_H + KORT_T + 2.5;
-VENT_H = SKARM ? 5.5 : TAK_Z - 2 - VENT_Z;
+VENT_H = VAGG_Z - 2 - VENT_Z;
 
 module botten() {
     difference() {
@@ -156,10 +163,7 @@ module botten() {
                 rundad_lada(UT_X, UT_Y, BOTTEN_T + 1.2);
                 translate([VAGG, VAGG, 0]) cube([IN_X, IN_Y, 10]);
             }
-            bottens_vaggar(TAK_Z);
-            // list i bakväggen som skärmkortets bakkant vilar på
-            if (SKARM) pa_kortet() translate([SK_MITT[0] - 45, KORT_Y + SPEL - 2.4, TAK_Z - SK_PCB_UNDER - 2])
-                cube([90, 2.5, 2]);
+            bottens_vaggar(VAGG_Z);
             // framkant under kortkanten (lockets framvägg slutar strax ovanför kortet)
             intersection() {
                 rundad_lada(UT_X, UT_Y, BOTTEN_H - 0.2);
@@ -188,18 +192,53 @@ module botten() {
     }
 }
 
+VAGG_H = VAGG_Z - (BOTTEN_T + 1.2) + 1;   // ursparningarna för bottnens väggar, från -1 i lockets koordinater
+
+// Spåren som bottnens väggar går upp i (0,3 mm luft); klackarna klipps här så de inte tar i väggarna
+module vagg_spar() {
+    translate([0, 0, BOTTEN_T + 1.2]) {
+        translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, VAGG_H]);
+        translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, VAGG_H]);
+        translate([-1, UT_Y - VAGG - 0.3, -1]) cube([UT_X + 2, VAGG + 1.3, VAGG_H]);
+        for (f = FRAM_HORN) translate([f[0] - 0.3, -1, -1]) cube([f[1] - f[0] + 0.6, VAGG + 1.3, VAGG_H]);
+    }
+}
+
+// Tunga innanför bottnens väggar så att locket låser i sidled. Bottnen är oförändrad.
+// [x0, y0, x1, y1] i lådans koordinater; fri från pelarna, RJ45 och SMA-muttrarna.
+TUNGA_T = 1.2;
+TUNGA_D = 2.5;
+TUNGOR = [
+    [VAGG + 1, UT_Y - VAGG - 0.3 - TUNGA_T, UT_X - VAGG - 1, UT_Y - VAGG - 0.3],              // bakväggen
+    [VAGG + 0.3, 18, VAGG + 0.3 + TUNGA_T, 77],                                                // Ethernet-änden
+    [UT_X - VAGG - 0.3 - TUNGA_T, 34, UT_X - VAGG - 0.3, 63],                                  // SMA-änden, mellan skotten
+    [VAGG + 1, VAGG + 0.3, VAGG + ANDE_V - 1, VAGG + 0.3 + TUNGA_T],                           // främre hörnen
+    [UT_X - VAGG - ANDE + 1, VAGG + 0.3, UT_X - VAGG - 1, VAGG + 0.3 + TUNGA_T],
+];
+module tungor() {
+    for (t = TUNGOR) {
+        translate([t[0], t[1], VAGG_Z - TUNGA_D]) cube([t[2] - t[0], t[3] - t[1], TUNGA_D + 0.01]);
+        // fäste uppåt mot taket eller (skärmlocket) mot väggen ovanför bottnens väggar
+        translate([t[0] - 1.5, t[1] - 1.5, VAGG_Z]) cube([t[2] - t[0] + 3, t[3] - t[1] + 3, 1]);
+    }
+}
+
 module lock_kropp() {
     difference() {
         union() {
-            // tak och framvägg; bottnens väggar går upp till taket (0,3 mm luft mot dem)
+            // tak och framvägg; bottnens väggar går upp till VAGG_Z (0,3 mm luft mot dem),
+            // därovan (med skärm) har locket en hel vägg runt om
             translate([0, 0, BOTTEN_T + 1.2]) difference() {
                 rundad_lada_fas(UT_X, UT_Y, LOCK_H);
                 translate([VAGG, VAGG, -1]) cube([IN_X, IN_Y, LOCK_H - TAK + 1]);
-                translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
-                translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, LOCK_H - TAK + 1]);
-                translate([-1, UT_Y - VAGG - 0.3, -1]) cube([UT_X + 2, VAGG + 1.3, LOCK_H - TAK + 1]);
-                for (f = FRAM_HORN) translate([f[0] - 0.3, -1, -1]) cube([f[1] - f[0] + 0.6, VAGG + 1.3, LOCK_H - TAK + 1]);
+                translate([-1, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, VAGG_H]);
+                translate([UT_X - VAGG - 0.3, -1, -1]) cube([VAGG + 1.3, UT_Y + 2, VAGG_H]);
+                translate([-1, UT_Y - VAGG - 0.3, -1]) cube([UT_X + 2, VAGG + 1.3, VAGG_H]);
+                for (f = FRAM_HORN) translate([f[0] - 0.3, -1, -1]) cube([f[1] - f[0] + 0.6, VAGG + 1.3, VAGG_H]);
             }
+            // list i bakväggen som skärmkortets bakkant vilar på
+            if (SKARM) pa_kortet() translate([SK_MITT[0] - 45, KORT_Y + SPEL - 2.4, TAK_Z - SK_PCB_UNDER - 2])
+                cube([90, 2.5, 2]);
             // klackar för skärmklämmorna fram
             if (SKARM) pa_kortet() for (p = SK_KLAMMOR)
                 translate([p[0], p[1], TAK_Z - SK_PCB_UNDER]) cylinder(d = 7, h = SK_PCB_UNDER + 0.1, $fn = 40);
@@ -213,7 +252,9 @@ module lock_kropp() {
             // klackar ner mot bottnens pelare
             pa_kortet() for (p = LOCK_SKRUV)
                 translate([p[0], p[1], Z_STOLPE + 0.2]) cylinder(d = 8, h = TOPP_Z - Z_STOLPE - 0.2, $fn = 40);
+            tungor();
         }
+        vagg_spar();
         // framväggen slutar 0,8 mm över kortet (kortkanten ligger i väggens plan)
         translate([-1, -1, 0]) cube([UT_X + 2, VAGG + 1.1, BOTTEN_H + KORT_T + 0.8]);
         // kontakterna i kanten: öppning från kortets ovansida och uppåt, öppen nedåt
@@ -221,7 +262,7 @@ module lock_kropp() {
             translate([k[1] - 0.6, -FRAM_Y - 1, BOTTEN_H - 0.5])
                 cube([k[2] - k[1] + 1.2, VAGG + 3, KORT_T + k[3] + 1.0]);
         // tak-öppningar
-        pa_kortet() for (o = TOPP)
+        pa_kortet() for (o = TOPP) if (!(SKARM && o[4] == "VINKEL J30"))   // J30 hamnar under skärmen
             translate([o[0] - 0.8, o[2] - 0.8, 0]) cube([o[1] - o[0] + 1.6, o[3] - o[2] + 1.6, 100]);
         if (SKARM) {
             // skärmfönster med fas utåt, och ficka för glaset underifrån
@@ -238,7 +279,8 @@ module lock_kropp() {
         // lockets skruvar: fritt hål och försänkt skalle
         pa_kortet() for (p = LOCK_SKRUV) {
             translate([p[0], p[1], 0]) cylinder(d = M3_FRI, h = 100, $fn = 32);
-            translate([p[0], p[1], TOPP_Z - 3]) cylinder(d = 6.4, h = 10, $fn = 40);
+            // skärmlocket: skallen sitter strax över bottnens väggar (M3×12 når pelaren)
+            translate([p[0], p[1], TOPP_Z - 3 - max(0, LOCK_FORL - 1.5)]) cylinder(d = 6.5, h = 10 + LOCK_FORL, $fn = 40);   // 6,4 tangerade väggspåret
         }
         text_kropp(1);
     }
@@ -277,13 +319,13 @@ module text_2d() {
                 }
             }
         }
-        for (o = TOPP) if (o[4] != "")
+        for (o = TOPP) if (o[4] != "" && !(SKARM && o[4] == "VINKEL J30"))
             translate(o[5]) rotate(o[6]) text(o[4], size = 2.8, font = FONT, halign = "center", valign = "center");
         // plinten: + närmast USB-C
         translate([95.6, 0.8, 0]) text("+", size = 3.6, font = FONT, halign = "center");
         translate([100.2, 0.8, 0]) text("−", size = 3.6, font = FONT, halign = "center");
         // J30 stift 1 sitter närmast kontaktraden
-        translate([104.05, 42.8, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
+        if (!SKARM) translate([104.05, 42.8, 0]) polygon([[-1.1, 0], [1.1, 0], [0, 1.8]]);
         // SMA-hålen i kortänden: GPS1 på samma sida som X1, GPS2 som X2
         for (g = [["GPS1", SMA_KORT_Y[1]], ["GPS2", SMA_KORT_Y[0]]])
             translate([KORT_X + SPEL + ANDE / 2 - 0.5, g[1], 0]) rotate(90)
