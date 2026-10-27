@@ -347,7 +347,7 @@ module klammor() {
 // Täckplatta för skärmlockets fönster, när skärmen inte används (limmas i från insidan).
 // Pluggen fyller fönstret med fasen och blir jäms med taket; flänsen ligger i glasfickan.
 // Springor som ventilationen i bakväggen (3 mm, delning 6 mm). Egna koordinater: fönstrets
-// mitt i origo, z = 0 vid takets undersida. Exporteras liggande med ovansidan mot plattan.
+// mitt i origo, z = 0 vid takets undersida. Exporteras med flänsen mot plattan.
 PLATTA_SPEL = 0.15;
 module skarmplatta() {
     nere = [SK_AKTIV[0] + 1 - 2 * PLATTA_SPEL, SK_AKTIV[1] + 1 - 2 * PLATTA_SPEL];
@@ -370,7 +370,7 @@ module skarmplatta() {
 }
 
 if (del == "botten") botten();
-else if (del == "skarmplatta") translate([0, 0, TAK]) rotate([180, 0, 0]) skarmplatta();
+else if (del == "skarmplatta") translate([0, 0, SK_FICKA]) skarmplatta();   // flänsen mot plattan (uppochner gav överhäng)
 else if (del == "klammor") klammor();
 else if (del == "lock") lock_kropp();
 else if (del == "text") intersection() { text_kropp(vilken = "text"); lock_kropp_hel(); }
