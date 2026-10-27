@@ -16,6 +16,14 @@ pub mod video;
 
 use serde::{Deserialize, Serialize};
 
+/// `Connect.client` för Robotstyrning (desktop och webbsidan) och för SentinAnt.
+pub const KLIENT_ROBOTSTYRNING: &str = "robotstyrning";
+pub const KLIENT_SENTINANT: &str = "sentinant";
+/// Avvisningstexter när roboten är i det andra läget (lägesknappen, autorobot LAGESKNAPP_PLAN.md).
+/// Samma texter i båda robotd, så att klienterna kan visa dem rakt av.
+pub const TEXT_SENTINANT_LAGE: &str = "Roboten är i SentinAnt-läge: håll in lägesknappen 3 s";
+pub const TEXT_RCS_LAGE: &str = "Roboten är i RCS/RS-läge: håll in lägesknappen 3 s";
+
 /// Skickas av klienten när den ansluter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ClientMessage {
@@ -24,7 +32,16 @@ pub enum ClientMessage {
     /// tillfälliga titta-koder). En förar-anslutning (as_viewer=false)
     /// litar på att WireGuard redan avgjort att du får vara på nätverket;
     /// robotd nekar bara om någon annan redan kör (en förare i taget).
-    Connect { as_viewer: bool, view_code: Option<String> },
+    /// `client` säger vilket program som ansluter ([`KLIENT_ROBOTSTYRNING`] eller
+    /// [`KLIENT_SENTINANT`]). Saknas fältet (äldre klienter, webbsidan) räknas det som
+    /// Robotstyrning. Robotar med lägesknapp (MP101) kör antingen robot-controls robotd
+    /// eller SentinAnts; fel klient nekas då med [`TEXT_RCS_LAGE`] / [`TEXT_SENTINANT_LAGE`].
+    Connect {
+        as_viewer: bool,
+        view_code: Option<String>,
+        #[serde(default)]
+        client: Option<String>,
+    },
     Control(ControlCommand),
     ScanVescBus,
     SaveVescProfile(VescProfileMsg),

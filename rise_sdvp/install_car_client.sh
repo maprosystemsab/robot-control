@@ -132,6 +132,14 @@ else
   echo -e "${GREEN}✅ Manuella USB-regler skapade och laddade!${NC}\n"
 fi
 
+# MP101 (CM5): Car_Client skriver lägesknappens läge till /run/lageknapp (firmware LAGESKNAPP=di2).
+# /run är bara skrivbar för root, så filen skapas vid varje start med Car_Client-användaren som ägare.
+if tr -d '\0' < /proc/device-tree/model 2>/dev/null | grep -qi "Compute Module 5"; then
+  echo "f /run/lageknapp 0664 $REAL_USER $REAL_USER -" > /etc/tmpfiles.d/lageknapp.conf
+  systemd-tmpfiles --create /etc/tmpfiles.d/lageknapp.conf
+  echo -e "${GREEN}✅ /run/lageknapp för lägesknappen (MP101).${NC}\n"
+fi
+
 # ------------------------------------------------------------------------------
 # 📡 STEG 3: Konfigurera Swepos RTK-tjänst (str2str)
 # ------------------------------------------------------------------------------

@@ -1112,6 +1112,10 @@ void CarClient::carPacketRx(quint8 id, CMD_PACKET cmd, const QByteArray &data)
         toSend = vb;
     }
 */
+    if ((quint8)cmd == 144 && data.size() >= 3) {
+        lageknappMottagen((quint8)data[2]);
+    }
+
     if (id != 254) {
 //        qDebug() << "In CarClient::carPacketRx. Car: " << id;
         if (mCarId == 255) {
@@ -1675,6 +1679,43 @@ void CarClient::nodstoppSkrivFil()
         ::rename("/tmp/nodstopp_status.tmp", "/tmp/nodstopp_status");
     }
     mNsFilSkriven.start();
+}
+
+// ---------------------------------------------------------------------------
+// Lägesknapp (MP101, se carclient.h). I RCS-läget är det Car_Client som har kortet,
+// så den skriver knappens läge åt lägesväxlaren och håller lampan släckt.
+// ---------------------------------------------------------------------------
+
+void CarClient::lageknappMottagen(quint8 lage)
+{
+    // /run/lageknapp skapas av systemd-tmpfiles med Car_Client-användaren som ägare
+    // (install_car_client.sh); /run är inte skrivbar, så filen skrivs om på plats.
+    QFile f("/run/lageknapp");
+    if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        f.write(QString("%1 %2\n").arg(lage).arg(QDateTime::currentSecsSinceEpoch()).toLatin1());
+        f.close();
+        mLageknappFilFel = false;
+    } else if (!mLageknappFilFel) {
+        qWarning() << "Lägesknapp: kan inte skriva /run/lageknapp:" << f.errorString();
+        mLageknappFilFel = true;
+    }
+
+    if (!mLageknappTimer) {
+        qWarning() << "Lägesknapp: kortet har lägesknapp (paket 144), lampan hålls släckt (RCS-läget)";
+        mLageknappTimer = new QTimer(this);
+        connect(mLageknappTimer, SIGNAL(timeout()), this, SLOT(lageknappLampaTick()));
+        mLageknappTimer->start(1000);
+        lageknappLampaTick();
+    }
+}
+
+void CarClient::lageknappLampaTick()
+{
+    QByteArray pkt;
+    pkt.append((char)255);
+    pkt.append((char)145);
+    pkt.append((char)0);    // av = RCS-läget (kortet blinkar långsamt om ingen styr på 5 s)
+    mPacketInterface->sendPacket(pkt);
 }
 
 void CarClient::skickaTillKlienter(const QByteArray &data)

@@ -22,6 +22,14 @@ ifeq ($(NODSTOPP),di1)
   MCU_DEFS += -DNODSTOPP_DI1
 endif
 
+# Lägesknapp på MP101:s DI2 och lampa på DI3 (lagesknapp_di.c): ... BOARD=mp101 LAGESKNAPP=di2
+ifeq ($(LAGESKNAPP),di2)
+  ifneq ($(BOARD),mp101)
+    $(error LAGESKNAPP=di2 finns bara med BOARD=mp101)
+  endif
+  MCU_DEFS += -DLAGESKNAPP_DI2
+endif
+
 # Compiler options here.
 ifeq ($(USE_OPT),)
   USE_OPT = -O2 -ggdb -fomit-frame-pointer -falign-functions=16 -std=gnu99
@@ -195,6 +203,7 @@ CSRC = $(STARTUPSRC) \
        steering_control.c \
        styr_position.c \
        nodstopp_di.c \
+       lagesknapp_di.c \
        actions.c \
        sensor_control.c \
        state_control.c \

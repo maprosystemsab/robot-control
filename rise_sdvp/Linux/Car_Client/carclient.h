@@ -139,6 +139,7 @@ private slots:
     void cameraImageCaptured(QImage img);
     void logBroadcasterDataReceived(QByteArray &data);
     void nodstoppTick();
+    void lageknappLampaTick();
 //    QString processCommand(QByteArray &data);
 
 private:
@@ -190,6 +191,14 @@ private:
     void nodstoppSkrivFil();
     void nodstoppSkickaLage();
     void skickaTillKlienter(const QByteArray &data);
+
+    // Lägesknapp på MP101 (firmware LAGESKNAPP=di2): kortet skickar [id][144][läge].
+    // Läget skrivs till /run/lageknapp ("<läge> <unix-sekunder>", 0 släppt, 1 intryckt,
+    // 2 hållen 3 s) för lägesväxlaren, och lampan hålls släckt (= RCS-läget) med [255][145][0].
+    // Allt startar först när kortet skickat 144, så robotar utan knapp påverkas inte.
+    QTimer *mLageknappTimer = nullptr;
+    bool mLageknappFilFel = false;
+    void lageknappMottagen(quint8 lage);
 
     QString mUsr;
     QString mPwd;

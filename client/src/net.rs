@@ -260,7 +260,13 @@ async fn run_connection(
         .map_err(|e| format!("kunde inte ansluta till {url}: {e}"))?;
     let (mut ws_tx, mut ws_rx) = ws_stream.split();
 
-    send(&mut ws_tx, &ClientMessage::Connect { as_viewer, view_code }).await?;
+    // `client` gör att SentinAnts robotd (lägesknappen) kan neka med
+    // relay_protocol::TEXT_SENTINANT_LAGE, som visas på anslutningsskärmen.
+    send(&mut ws_tx, &ClientMessage::Connect {
+        as_viewer,
+        view_code,
+        client: Some(relay_protocol::KLIENT_ROBOTSTYRNING.to_string()),
+    }).await?;
 
     match recv::<RobotMessage>(&mut ws_rx).await? {
         RobotMessage::ConnectedAsDriver => {

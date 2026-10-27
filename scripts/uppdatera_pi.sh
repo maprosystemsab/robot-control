@@ -139,9 +139,11 @@ else
   if [ "$KORTTYP" != rovmcu ] && ! lsusb | grep -qi "st-link"; then   # MP101 flashas via CM5:ans ben
     fel "Ingen ST-Link hittades på USB. Flashar inte."
   elif if [ "$KORTTYP" = rovmcu ]; then
-         # Nödstopp på DI1: markeras med filen /etc/robotd/nodstopp-di1 så att det inte försvinner vid uppdatering
+         # Nödstopp på DI1 och lägesknapp på DI2 markeras med filerna /etc/robotd/nodstopp-di1
+         # och /etc/robotd/lagesknapp-di2, så att de inte försvinner vid en uppdatering
          RC_FW_DIR="$FW_DIR" bash "$ROOT/flash_styrkort.sh" --maskin rovmcu --profil "$MASKIN" --fw-dir "$FW_DIR" --ja \
-           $([ -f /etc/robotd/nodstopp-di1 ] && echo --nodstopp-di1)
+           $([ -f /etc/robotd/nodstopp-di1 ] && echo --nodstopp-di1) \
+           $([ -f /etc/robotd/lagesknapp-di2 ] && echo --lagesknapp-di2)
        else
          RC_FW_DIR="$FW_DIR" bash "$ROOT/flash_styrkort.sh" --maskin "$MASKIN" --fw-dir "$FW_DIR" --ja
        fi; then

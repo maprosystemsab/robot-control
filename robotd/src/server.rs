@@ -184,9 +184,29 @@ async fn handle_socket(
 
     // Vänta på första meddelandet: måste vara Connect.
     let Some(Ok(Message::Text(text))) = ws_rx.next().await else { return };
-    let Ok(ClientMessage::Connect { as_viewer, view_code }) = serde_json::from_str(&text) else {
+    let Ok(ClientMessage::Connect { as_viewer, view_code, client }) = serde_json::from_str(&text) else {
         return;
     };
+
+    // Nekanden skickas direkt: kön (out_tx) töms först i loopen nedan, som ett
+    // nekande aldrig når. Förut fick klienten därför aldrig veta orsaken.
+    async fn neka<S>(ws_tx: &mut S, reason: &str)
+    where
+        S: futures_util::Sink<Message> + Unpin,
+    {
+        let msg = RobotMessage::ConnectDenied { reason: reason.to_string() };
+        if let Ok(json) = serde_json::to_string(&msg) {
+            let _ = ws_tx.send(Message::Text(json.into())).await;
+        }
+        let _ = ws_tx.close().await;
+    }
+
+    // Lägesknappen: SentinAnt-klienten ska till SentinAnts robotd, som inte kör nu.
+    if client.as_deref() == Some(relay_protocol::KLIENT_SENTINANT) {
+        tracing::info!("Anslutning från SentinAnt nekad: roboten är i RCS/RS-läge.");
+        neka(&mut ws_tx, relay_protocol::TEXT_RCS_LAGE).await;
+        return;
+    }
 
     let is_driver = if as_viewer {
         let mut ok = true;
@@ -198,9 +218,7 @@ async fn handle_socket(
         }
         if !ok {
             tracing::info!("Åskådaranslutning nekad: ogiltig eller utgången titta-kod.");
-            let _ = out_tx.send(RobotMessage::ConnectDenied {
-                reason: "ogiltig eller utgången titta-kod".to_string(),
-            }).await;
+            neka(&mut ws_tx, "ogiltig eller utgången titta-kod").await;
             return;
         }
         false
@@ -212,9 +230,8 @@ async fn handle_socket(
             // så det går att felsöka från robotd-sidan utan att fråga
             // föraren vad de såg.
             tracing::info!("Förar-anslutning nekad: roboten körs redan av någon annan.");
-            let _ = out_tx.send(RobotMessage::ConnectDenied {
-                reason: "roboten körs redan av någon annan".to_string(),
-            }).await;
+            drop(shared);
+            neka(&mut ws_tx, "roboten körs redan av någon annan").await;
             return;
         }
         shared.driver_connected = true;
@@ -406,7 +423,7 @@ mod tests {
         for _ in 0..50 {
             match tokio_tungstenite::connect_async(&url).await {
                 Ok((mut ws, _)) => {
-                    let hello = serde_json::to_string(&ClientMessage::Connect { as_viewer: false, view_code: None }).unwrap();
+                    let hello = serde_json::to_string(&ClientMessage::Connect { as_viewer: false, view_code: None, client: None }).unwrap();
                     ws.send(WsMessage::Text(hello)).await.unwrap();
                     return ws;
                 }
@@ -467,5 +484,56 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+    }
+
+    /// Nekanden ska nå klienten (förut lades de i en kö som aldrig tömdes).
+    async fn forsta_svaret(ws: &mut tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>) -> RobotMessage {
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if let Some(Ok(WsMessage::Text(t))) = ws.next().await {
+                    if let Ok(m) = serde_json::from_str::<RobotMessage>(&t) {
+                        return m;
+                    }
+                }
+            }
+        })
+        .await
+        .unwrap()
+    }
+
+    /// Lägesknappen: SentinAnt-klienten nekas med texten om RCS/RS-läget.
+    #[tokio::test]
+    async fn sentinant_klient_nekas_med_lagestext() {
+        let port = 41_000 + (std::process::id() % 1000) as u16;
+        let _handles = spawn(format!("127.0.0.1:{port}"));
+        let url = format!("ws://127.0.0.1:{port}/ws");
+        let mut ws = loop {
+            if let Ok((ws, _)) = tokio_tungstenite::connect_async(&url).await { break ws; }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        };
+        let hello = serde_json::to_string(&ClientMessage::Connect {
+            as_viewer: false,
+            view_code: None,
+            client: Some(relay_protocol::KLIENT_SENTINANT.to_string()),
+        }).unwrap();
+        ws.send(WsMessage::Text(hello)).await.unwrap();
+        match forsta_svaret(&mut ws).await {
+            RobotMessage::ConnectDenied { reason } => assert_eq!(reason, relay_protocol::TEXT_RCS_LAGE),
+            m => panic!("väntade ConnectDenied, fick {m:?}"),
+        }
+    }
+
+    /// En andra förare får veta varför den nekas.
+    #[tokio::test]
+    async fn andra_foraren_far_orsaken() {
+        let port = 42_000 + (std::process::id() % 1000) as u16;
+        let _handles = spawn(format!("127.0.0.1:{port}"));
+        let mut forsta = connect_client(port).await;
+        assert!(matches!(forsta_svaret(&mut forsta).await, RobotMessage::ConnectedAsDriver));
+        let mut andra = connect_client(port).await;
+        match forsta_svaret(&mut andra).await {
+            RobotMessage::ConnectDenied { reason } => assert_eq!(reason, "roboten körs redan av någon annan"),
+            m => panic!("väntade ConnectDenied, fick {m:?}"),
+        }
     }
 }

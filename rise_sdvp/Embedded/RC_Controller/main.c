@@ -34,6 +34,7 @@
 #include "adconv.h"
 #include "styr_position.h"
 #include "nodstopp_di.h"
+#include "lagesknapp_di.h"
 #include "led.h"
 #include "packet.h"
 #include "pos.h"
@@ -110,7 +111,11 @@ static void rovmcu_board_init(void) {
 	palSetPad(GPIOE, 4);	// DIR_U34: DI1 = SERV_0 (PB0)
 #endif
 	palSetPadMode(GPIOE, 4, PAL_MODE_OUTPUT_PUSHPULL);
+#ifdef LAGESKNAPP_DI2
+	palClearPad(GPIOB, 3);	// DIR_U38: DI2 = lägesknapp, ingång (lagesknapp_di.c)
+#else
 	palSetPad(GPIOB, 3);	// DIR_U38: DI2 = SERV_1 (PB1)
+#endif
 	palSetPadMode(GPIOB, 3, PAL_MODE_OUTPUT_PUSHPULL);
 	palSetPad(GPIOB, 4);	// DIR_U39: DI3 = SERV_2 (PA2)
 	palSetPadMode(GPIOB, 4, PAL_MODE_OUTPUT_PUSHPULL);
@@ -144,6 +149,9 @@ int main(void) {
 	styrpos_init();
 #ifdef NODSTOPP_DI1
 	nodstopp_di_init();
+#endif
+#ifdef LAGESKNAPP_DI2
+	lagesknapp_di_init();
 #endif
 	servo_simple_init();
 	pos_init();

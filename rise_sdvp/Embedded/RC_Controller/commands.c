@@ -17,6 +17,7 @@
 
 #include "commands.h"
 #include "nodstopp_di.h"
+#include "lagesknapp_di.h"
 #include "ch.h"
 #include "hal.h"
 #include "packet.h"
@@ -262,6 +263,15 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 #ifdef NODSTOPP_DI1
 		// Nödstoppet på DI1 spärrar körkommandon (nodstopp_di.c)
 		if (nodstopp_di_sparrar(packet_id, data, len)) {
+			return;
+		}
+#endif
+#ifdef LAGESKNAPP_DI2
+		// Lägesknappens lampa (lagesknapp_di.c): [id][145][läge]
+		if ((uint8_t)packet_id == LAGESKNAPP_CMD_LAMPA) {
+			if (len >= 1) {
+				lagesknapp_di_lampa(data[0]);
+			}
 			return;
 		}
 #endif

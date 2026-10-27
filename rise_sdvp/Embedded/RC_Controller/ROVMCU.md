@@ -32,8 +32,8 @@ Bygg en profil åt gången. Flashskripten kör redan `make clean` före bygget.
 | IMU-avbrott / kompassavbrott | PB5 / PE6 | FMU_CH5_IMU_INT2 / IIS2MDC_IRQ | används inte |
 | I2C1 (extern) | PB6 / PB7 | I2C1_SCL/SDA | används inte |
 | DI1 (J18/J27) | PB0 | SERV_0 | PWM, TIM3_CH3; med `NODSTOPP=di1` **nödstoppsingång** (se nedan) |
-| DI2 (J23/J32) | PB1 | SERV_1 | PWM, TIM3_CH4 |
-| DI3 (J24/J37) | PA2 | SERV_2 | PWM, TIM9_CH1 |
+| DI2 (J23/J32) | PB1 | SERV_1 | PWM, TIM3_CH4; med `LAGESKNAPP=di2` **lägesknapp** (se nedan) |
+| DI3 (J24/J37) | PA2 | SERV_2 | PWM, TIM9_CH1; med `LAGESKNAPP=di2` **lampa** (vanlig utgång) |
 | DI4 (J26/J42) | PA3 | SERV_3 | **hjulpulsingång**, TIM2_CH4; R127 pull-up |
 | Riktning DI1-4 (74AXP1T45, hög = STM32 → kontakt) | PE4 / PB3 / PB4 / PD7 | DIR_U34 / U38 / U39 / U40 | **hög/hög/hög/låg** (ut/ut/ut/in) |
 | Lysdioder | PC10 / PC11 | LED0 / LED1 | **grön / röd** |
@@ -84,4 +84,21 @@ nödstoppet själv, oberoende av Pi:n. Utan flaggan är firmwaren byte för byte
   spärras); utdragen i 0,5 s ger spärrat läge som släpps av förarens stoppkommando; läget skickas som
   `[id][143][läge]` (0 ok, 1 intryckt, 2 spärrad) så RControlStation visar det. Använd inte Car_Clients
   `--nodstopp-gpio` samtidigt.
+
+## Lägesknapp på DI2 och lampa på DI3 (`LAGESKNAPP=di2`)
+
+För robotar med både RCS/Robotstyrning och SentinAnt (autorobot `LAGESKNAPP_PLAN.md`): knappen hålls
+in 3 s för att byta läge. Styrkortet rapporterar bara knappen; lägesväxlaren på CM5 byter tjänster.
+`make clean && make -j4 robant BOARD=mp101 LAGESKNAPP=di2` (går ihop med `NODSTOPP=di1`). Utan flaggan
+är firmwaren byte för byte som förut.
+
+- Koppling: NO-knapp mellan DI2 stift 2 och stift 3 (GND), pull-up 1–4,7 kΩ till stift 1 (+5 V)
+  (R129 är "no mount"). Intryckt = låg. U38 vänds till ingång (DIR_U38 = PB3 låg).
+- `[id][144][läge]` från kortet vid ändring och varje sekund: 0 släppt, 1 intryckt, 2 hållen 3 s
+  (en gång per tryck). Avstudsning 30 ms.
+- `[id][145][läge]` till kortet styr lampan på DI3 (PA2 som vanlig utgång via R77 220 Ω):
+  0 av, 1 på, 2 blink (4 Hz). Utan 145 på 5 s blinkar den långsamt (0,5 Hz).
+- Car_Client (RCS-läget) skriver `/run/lageknapp` ("<läge> <unix-sek>") och skickar 145 = 0 (släckt)
+  varje sekund, men först när kortet har skickat 144.
+- 144 och 145 är upptagna i CMD-numreringen (se datatypes.h).
 

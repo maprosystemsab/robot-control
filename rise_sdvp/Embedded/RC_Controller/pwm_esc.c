@@ -162,6 +162,7 @@ void pwm_esc_init(void) {
 			PAL_STM32_OTYPE_PUSHPULL |
 			PAL_STM32_OSPEED_MID1);
 #endif
+#ifndef LAGESKNAPP_DI2	// MP101: PB1 (DI2) är lägesknapp och PA2 (DI3) lampa, se lagesknapp_di.c
 	palSetPadMode(SERVO2_GPIO, SERVO2_PIN,
 			PAL_MODE_ALTERNATE(GPIO_AF_TIM3) |
 			PAL_STM32_OTYPE_PUSHPULL |
@@ -170,6 +171,7 @@ void pwm_esc_init(void) {
 			PAL_MODE_ALTERNATE(GPIO_AF_TIM9) |
 			PAL_STM32_OTYPE_PUSHPULL |
 			PAL_STM32_OSPEED_MID1);
+#endif
 // PA3 är hjulpulsingång på MP101 och analog ingång för vinkelgivaren (adconv.c) med ANGLE_SENSOR_PA3.
 #if !defined(IS_ROVMCU) && !defined(ANGLE_SENSOR_PA3)
 	palSetPadMode(SERVO4_GPIO, SERVO4_PIN,

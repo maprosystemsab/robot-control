@@ -240,7 +240,7 @@ void PacketInterface::processPacket(const unsigned char *data, int len)
     len--;
 
 
-    if ((cmd!=63) && (cmd!=120))
+    if ((cmd!=63) && (cmd!=120) && (quint8)cmd != 143 && (quint8)cmd != 144)   // 143/144 kommer varje sekund
     {
         qDebug() << cmd;
     };
