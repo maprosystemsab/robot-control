@@ -344,7 +344,33 @@ module klammor() {
         }
 }
 
+// Täckplatta för skärmlockets fönster, när skärmen inte används (limmas i från insidan).
+// Pluggen fyller fönstret med fasen och blir jäms med taket; flänsen ligger i glasfickan.
+// Springor som ventilationen i bakväggen (3 mm, delning 6 mm). Egna koordinater: fönstrets
+// mitt i origo, z = 0 vid takets undersida. Exporteras liggande med ovansidan mot plattan.
+PLATTA_SPEL = 0.15;
+module skarmplatta() {
+    nere = [SK_AKTIV[0] + 1 - 2 * PLATTA_SPEL, SK_AKTIV[1] + 1 - 2 * PLATTA_SPEL];
+    uppe = [SK_AKTIV[0] + 5 - 2 * PLATTA_SPEL, SK_AKTIV[1] + 5 - 2 * PLATTA_SPEL];
+    flans = [SK_GLAS[0], SK_GLAS[1]];   // fickan är glaset + 0,4
+    difference() {
+        union() {
+            hull() {
+                translate([-nere[0] / 2, -nere[1] / 2, 0]) cube([nere[0], nere[1], 0.01]);
+                translate([-uppe[0] / 2, -uppe[1] / 2, TAK - 0.01]) cube([uppe[0], uppe[1], 0.01]);
+            }
+            translate([-flans[0] / 2, SK_GLAS_DY - flans[1] / 2, -SK_FICKA]) cube([flans[0], flans[1], SK_FICKA + 0.01]);
+        }
+        for (x = [-45 : 6 : 45])
+            translate([x - 1.5, -(nere[1] - 6) / 2, -1]) cube([3, nere[1] - 6, TAK + 2]);
+        // pil mot kontaktkanten (fram) på flänsens insida, så att plattan vänds rätt
+        translate([0, SK_GLAS_DY - flans[1] / 2 + 2.5, -SK_FICKA - 0.01])
+            linear_extrude(0.4) polygon([[-3, 3], [3, 3], [0, 0]]);
+    }
+}
+
 if (del == "botten") botten();
+else if (del == "skarmplatta") translate([0, 0, TAK]) rotate([180, 0, 0]) skarmplatta();
 else if (del == "klammor") klammor();
 else if (del == "lock") lock_kropp();
 else if (del == "text") intersection() { text_kropp(vilken = "text"); lock_kropp_hel(); }
