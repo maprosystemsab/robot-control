@@ -14,6 +14,14 @@ else
   $(error BOARD must be legacy or mp101)
 endif
 
+# Nödstopp på MP101:s DI1 (nodstopp_di.c): make clean && make -j4 robant BOARD=mp101 NODSTOPP=di1
+ifeq ($(NODSTOPP),di1)
+  ifneq ($(BOARD),mp101)
+    $(error NODSTOPP=di1 finns bara med BOARD=mp101)
+  endif
+  MCU_DEFS += -DNODSTOPP_DI1
+endif
+
 # Compiler options here.
 ifeq ($(USE_OPT),)
   USE_OPT = -O2 -ggdb -fomit-frame-pointer -falign-functions=16 -std=gnu99
@@ -186,6 +194,7 @@ CSRC = $(STARTUPSRC) \
        motor_control.c \
        steering_control.c \
        styr_position.c \
+       nodstopp_di.c \
        actions.c \
        sensor_control.c \
        state_control.c \

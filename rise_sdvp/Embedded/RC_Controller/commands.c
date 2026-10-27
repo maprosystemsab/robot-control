@@ -16,6 +16,7 @@
  */
 
 #include "commands.h"
+#include "nodstopp_di.h"
 #include "ch.h"
 #include "hal.h"
 #include "packet.h"
@@ -257,6 +258,13 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 	// - ID_VEHICLE_CLIENT (vehicle client)
 	if (id == main_id || id == 0 || id == ID_ALL || id == ID_VEHICLE_CLIENT) {
 		int id_ret = main_id; // Default response ID is our main_id
+
+#ifdef NODSTOPP_DI1
+		// Nödstoppet på DI1 spärrar körkommandon (nodstopp_di.c)
+		if (nodstopp_di_sparrar(packet_id, data, len)) {
+			return;
+		}
+#endif
 
 		// If packet was addressed to ID_VEHICLE_CLIENT, respond with that ID
 		if (id == ID_VEHICLE_CLIENT) {

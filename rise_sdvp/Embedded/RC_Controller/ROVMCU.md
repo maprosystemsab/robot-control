@@ -31,7 +31,7 @@ Bygg en profil åt gången. Flashskripten kör redan `make clean` före bygget.
 | IMU BMI270 + kompass IIS2MDC | PB10 SCL / PB11 SDA | I2C2_*_GPS2_MAG_LED | hårdvaru-I2C2, 100 kHz, `imu/bmi270_wrapper.c` (endast BMI270 används) |
 | IMU-avbrott / kompassavbrott | PB5 / PE6 | FMU_CH5_IMU_INT2 / IIS2MDC_IRQ | används inte |
 | I2C1 (extern) | PB6 / PB7 | I2C1_SCL/SDA | används inte |
-| DI1 (J18/J27) | PB0 | SERV_0 | PWM, TIM3_CH3 |
+| DI1 (J18/J27) | PB0 | SERV_0 | PWM, TIM3_CH3; med `NODSTOPP=di1` **nödstoppsingång** (se nedan) |
 | DI2 (J23/J32) | PB1 | SERV_1 | PWM, TIM3_CH4 |
 | DI3 (J24/J37) | PA2 | SERV_2 | PWM, TIM9_CH1 |
 | DI4 (J26/J42) | PA3 | SERV_3 | **hjulpulsingång**, TIM2_CH4; R127 pull-up |
@@ -69,3 +69,19 @@ annars ge en odefinierad resetnivå).
 - Två antenner: RXD2/TXD2 på F9P:erna är inte inkopplade, så RTCM från GPS 1 till
   GPS 2 går via CM5 (`str2str` USB → USB); kursen (RELPOSNED) ska sedan in i firmwaren.
 - CAN2, GPS 2 via USART1, hjulpulser på PD0/PD1.
+
+## Nödstopp på DI1 (`NODSTOPP=di1`)
+
+`make clean && make -j4 robant BOARD=mp101 NODSTOPP=di1` bygger in `nodstopp_di.c`: styrkortet läser
+nödstoppet själv, oberoende av Pi:n. Utan flaggan är firmwaren byte för byte som förut.
+
+- Koppling: NC-knapp mellan DI1 stift 2 (signal) och stift 3 (GND). DI1 saknar pull-up
+  (R130 1 kΩ är "no mount"): montera R130, eller sätt 1–4,7 kΩ mellan stift 1 (+5 V) och stift 2
+  i knappens plintar. Sluten = låg = OK; intryckt eller kabelbrott = hög = stopp.
+- U34 vänds till ingång (DIR_U34 låg) och PB0 används inte som PWM. Bygget stoppas för maskiner
+  som styr med PWM-servo på PB0 (`SERVO_VESC_ID < 0`).
+- Som Car_Clients GPIO-nödstopp: 40 ms stoppar (autopilot av, fart 0, hydraulik stopp, körkommandon
+  spärras); utdragen i 0,5 s ger spärrat läge som släpps av förarens stoppkommando; läget skickas som
+  `[id][143][läge]` (0 ok, 1 intryckt, 2 spärrad) så RControlStation visar det. Använd inte Car_Clients
+  `--nodstopp-gpio` samtidigt.
+

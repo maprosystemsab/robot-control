@@ -15,6 +15,8 @@
 #   ./flash_styrkort.sh --maskin rovmcu --profil robant
 #                                            MP101/ROV_MCU-kortet (Upwis) med en maskins
 #                                            inställningar (robant, mactrac eller drangen)
+#   ./flash_styrkort.sh --maskin rovmcu --profil robant --nodstopp-di1
+#                                            MP101 med nödstoppet på DI1 (NC-knapp, se ROVMCU.md)
 #   ./flash_styrkort.sh --bara-bygg          bygg och kontrollera, RÖR INGEN HÅRDVARA
 #   ./flash_styrkort.sh --patch FIL.patch    bygg i en TILLFÄLLIG KOPIA med patchen
 #                                            applicerad; din firmware-mapp lämnas orörd
@@ -57,6 +59,7 @@ while [ $# -gt 0 ]; do
     --bara-bygg)  BUILD_ONLY=1; shift ;;
     --fw-dir)     FW_DIR_ARG="$2"; shift 2 ;;
     --ja)         AUTO_JA=1; shift ;;
+    --nodstopp-di1) NODSTOPP_DI1=1; shift ;;
     -h|--hjalp|--help) usage; exit 0 ;;
     *) echo -e "${RED}Okänt argument: $1${NC}"; usage; exit 1 ;;
   esac
@@ -183,11 +186,16 @@ MAKE_BOARD=""
 if [ -n "$PROFIL" ] && [ "$FW_NAME" != rovmcu ]; then
   echo -e "${RED}--profil gäller bara --maskin rovmcu.${NC}"; exit 1
 fi
+if [ -n "${NODSTOPP_DI1:-}" ] && [ "$FW_NAME" != rovmcu ]; then
+  echo -e "${RED}--nodstopp-di1 gäller bara --maskin rovmcu.${NC}"; exit 1
+fi
 if [ "$FW_NAME" = rovmcu ]; then
   case "${PROFIL:=robant}" in drangen|mactrac|robant) ;; *) echo -e "${RED}Okänd profil '$PROFIL' (robant, mactrac eller drangen).${NC}"; exit 1 ;; esac
   if grep -q '^BOARD ?=' "$FW_DIR/Makefile"; then
     MAKE_TARGET="$PROFIL"
-    MAKE_BOARD="BOARD=mp101"
+    MAKE_BOARD="BOARD=mp101${NODSTOPP_DI1:+ NODSTOPP=di1}"
+  elif [ -n "${NODSTOPP_DI1:-}" ]; then
+    echo -e "${RED}Firmwarekällan saknar BOARD=mp101 och kan inte bygga nödstoppet på DI1.${NC}"; exit 1
   fi
 fi
 

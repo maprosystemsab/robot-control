@@ -38,7 +38,7 @@ MARKERINGAR = [
     (4, "DI4 hjulgivare", 3271, 2257, 3477, 2463, GRON),
     (5, "DI3", 3487, 2257, 3693, 2463, GRA),
     (6, "DI2", 3703, 2257, 3908, 2463, GRA),
-    (7, "DI1", 3918, 2257, 4123, 2463, GRA),
+    (7, "DI1 nödstopp", 3918, 2257, 4123, 2463, ORANGE),
     (8, "J30 analog in (vinkelgivare)", 2647, 976, 2763, 1283, GRON),
     (9, "X1 antenn GPS 1", 3487, 507, 3554, 573, BLA),
     (10, "X2 antenn GPS 2", 3568, 2018, 3635, 2086, BLA),
@@ -124,7 +124,7 @@ def main():
           "matningen till vänster till DI1 längst till höger. Kortet ligger som när du tittar "
           "ner på det med kontaktraden mot dig."),
         pdfstil.bild("_mp101_kort.png", 175,
-                     "Grönt = används av roboten · blått = GPS · rött = matning · grått = ledigt. "
+                     "Grönt = används av roboten · orange = nödstopp · blått = GPS · rött = matning · grått = ledigt. "
                      "Små siffror = stiftnummer, stift 1 är ifyllt."),
         h2("Kontaktraden förstorad"),
         pdfstil.bild("_mp101_rad.png", 175,
@@ -137,7 +137,8 @@ def main():
             ["2", "J20 / J12", "<b>CAN1</b>: VESC-motorstyrningarna (den som firmwaren använder)"],
             ["3", "J22 / J15", "CAN2: ledig (avstängd i firmwaren)"],
             ["4", "J26 / J42", "<b>DI4</b>: hastighetsgivaren (hjulpulser)"],
-            ["5–7", "J24/J37, J23/J32, J18/J27", "DI3, DI2, DI1: lediga (utgångar i firmwaren)"],
+            ["5–6", "J24/J37, J23/J32", "DI3, DI2: lediga (utgångar i firmwaren)"],
+            ["7", "J18 / J27", "<b>DI1</b>: nödstopp (NC-knapp), se nedan"],
             ["8", "J30", "<b>Analoga ingångar</b>: vinkelgivaren för styrningen (stift 2)"],
             ["9", "X1", "Antenn till GPS 1 (U10), den som används för position och RTK"],
             ["10", "X2", "Antenn till GPS 2 (U7), till kurs med två antenner senare"],
@@ -164,6 +165,37 @@ def main():
             "och jord hit.",
         ]),
         varning("Koppla aldrig 12 V till stift 2. Ingången tål bara 5 V."),
+
+        h1("Nödstoppet: DI1 (nr 7)"),
+        p("Nödstoppet läses direkt av styrkortet (STM32), inte av Pi:n. Det stoppar alltså även om "
+          "Pi:n eller Car_Client har hängt sig. Knappen ska vara en <b>NC-knapp</b> (sluten i vila)."),
+        tabell([
+            ["Stift", "Funktion"],
+            ["1", "+5 V ut (säkrad): till pull-up-motståndet"],
+            ["2", "<b>Signal</b> (ingång): till knappen och motståndet"],
+            ["3", "<b>GND</b>: till knappens andra sida"],
+        ], bredder=[20, 155]),
+        tips("Stift 1 sitter i änden <b>längst bort från matningsplinten</b> (till höger i bilden)."),
+        punkter([
+            "NC-knappen kopplas mellan <b>stift 2</b> och <b>stift 3</b>.",
+            "DI1 saknar pull-up på kortet (R130 är inte monterad från Upwis). Sätt ett motstånd på "
+            "<b>1–4,7 kΩ mellan stift 1 och stift 2</b>, enklast i knappens skruvplintar. "
+            "Inget behöver lödas på kortet. (Eller be Upwis montera R130, 1 kΩ.)",
+            "Knappen sluten = signalen låg = körning tillåten. Intryckt <b>eller kabelbrott</b> = "
+            "signalen hög = STOPP.",
+            "Intryckt: autopiloten stängs av, farten sätts till 0 och alla körkommandon spärras. "
+            "När knappen dragits ut förblir körningen spärrad tills föraren släpper spaken eller "
+            "trycker Lås/Stopp, så roboten börjar aldrig köra av sig själv.",
+            "RControlStation visar läget på Stopp-knappen, som med nödstoppet på det gamla kortet.",
+        ]),
+        h2("Firmwaren"),
+        p("Nödstoppet byggs bara in när det slås på, eftersom ingången flyter utan knapp och motstånd. "
+          "Flasha MP101 med <i>./flash_styrkort.sh --maskin rovmcu --profil robant --nodstopp-di1</i>. "
+          "Skapa sedan filen <i>/etc/robotd/nodstopp-di1</i> på roboten (<i>sudo touch "
+          "/etc/robotd/nodstopp-di1</i>), så kommer nödstoppet med när roboten uppdateras."),
+        varning("Prova nödstoppet med roboten upphissad innan den körs: tryck in knappen, dra ur "
+                "kabeln, och kontrollera att RControlStation visar nödstopp båda gångerna. Använd "
+                "inte Car_Clients nödstopp (--nodstopp-gpio) samtidigt."),
 
         h1("Vinkelgivaren: J30 (nr 8)"),
         p("J30 har tre analoga ingångar (0–5 V, spänningsdelare 20k/10k på kortet). Vinkelgivaren "

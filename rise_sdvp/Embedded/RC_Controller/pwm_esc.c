@@ -156,10 +156,12 @@ void pwm_esc_init(void) {
 	pwmStart(&PWMD3, &pwmcfg3);
 	pwmStart(&PWMD9, &pwmcfg9);
 
+#ifndef NODSTOPP_DI1	// MP101: PB0 (DI1) är nödstoppsingång, se nodstopp_di.c
 	palSetPadMode(SERVO1_GPIO, SERVO1_PIN,
 			PAL_MODE_ALTERNATE(GPIO_AF_TIM3) |
 			PAL_STM32_OTYPE_PUSHPULL |
 			PAL_STM32_OSPEED_MID1);
+#endif
 	palSetPadMode(SERVO2_GPIO, SERVO2_PIN,
 			PAL_MODE_ALTERNATE(GPIO_AF_TIM3) |
 			PAL_STM32_OTYPE_PUSHPULL |

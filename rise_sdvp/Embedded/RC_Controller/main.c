@@ -33,6 +33,7 @@
 #include "ext_cb.h"
 #include "adconv.h"
 #include "styr_position.h"
+#include "nodstopp_di.h"
 #include "led.h"
 #include "packet.h"
 #include "pos.h"
@@ -103,7 +104,11 @@ static void rovmcu_board_init(void) {
 	palSetPadMode(GPIOB, 14, PAL_MODE_OUTPUT_PUSHPULL);	// SILENT_CAN2
 
 	// PB0/PB1/PA2 are PWM outputs; PA3 is the pulled-up wheel input.
+#ifdef NODSTOPP_DI1
+	palClearPad(GPIOE, 4);	// DIR_U34: DI1 = nödstoppsingång (nodstopp_di.c)
+#else
 	palSetPad(GPIOE, 4);	// DIR_U34: DI1 = SERV_0 (PB0)
+#endif
 	palSetPadMode(GPIOE, 4, PAL_MODE_OUTPUT_PUSHPULL);
 	palSetPad(GPIOB, 3);	// DIR_U38: DI2 = SERV_1 (PB1)
 	palSetPadMode(GPIOB, 3, PAL_MODE_OUTPUT_PUSHPULL);
@@ -137,6 +142,9 @@ int main(void) {
 	actuators_init();
 	adconv_init();
 	styrpos_init();
+#ifdef NODSTOPP_DI1
+	nodstopp_di_init();
+#endif
 	servo_simple_init();
 	pos_init();
 	pos_uwb_init();
