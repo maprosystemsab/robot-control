@@ -136,7 +136,7 @@ elif [ "$HAR_BACKUP" -ne 1 ] && [ "${FLASHA_UTAN_BACKUP:-0}" != "1" ]; then
   fel "Styrkortet har $KORT, ny version är $KALLA, men flashas inte utan backup (se steg 0). Kör igen."
 else
   echo "Styrkortet har $KORT, ny version är $KALLA — flashar (inställningarna behålls)."
-  if ! lsusb | grep -qi "st-link"; then
+  if [ "$KORTTYP" != rovmcu ] && ! lsusb | grep -qi "st-link"; then   # MP101 flashas via CM5:ans ben
     fel "Ingen ST-Link hittades på USB. Flashar inte."
   elif if [ "$KORTTYP" = rovmcu ]; then
          # Nödstopp på DI1: markeras med filen /etc/robotd/nodstopp-di1 så att det inte försvinner vid uppdatering

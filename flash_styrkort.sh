@@ -270,12 +270,55 @@ else
   fi
 fi
 
+# MP101 utan ST-Link: flasha via CM5:ans egna ben (SWD), som rise_sdvp flash_styrkort_rovmcu.sh --cm5.
+# GPIO11 = SWCLK, GPIO8 = SWDIO, GPIO17 = NRST, GPIO16 = BOOT0, openocd med linuxgpiod.
+if [ "$FW_NAME" = rovmcu ] && ! lsusb | grep -qi "st-link" && \
+   tr -d '\0' < /proc/device-tree/model 2>/dev/null | grep -qi "Compute Module 5"; then
+  S=""; [ "$EUID" -ne 0 ] && S="sudo"
+  for TOOL in openocd gpiodetect gpioinfo gpioset pinctrl; do
+    command -v "$TOOL" >/dev/null || { echo -e "${RED}$TOOL saknas (CM5-flashning).${NC}"; exit 1; }
+  done
+  CHIP=$(gpiodetect | sed -n 's/^gpiochip\([0-9][0-9]*\) \[pinctrl-rp1\].*/\1/p')
+  [[ "$CHIP" =~ ^[0-9]+$ ]] || { echo -e "${RED}Hittar inte CM5:ans GPIO-krets (pinctrl-rp1).${NC}"; exit 1; }
+  ELF="${BIN%.bin}.elf"
+  [ -f "$ELF" ] || { echo -e "${RED}ELF-filen saknas: $ELF${NC}"; exit 1; }
+  CFG=$(mktemp /tmp/mp101_openocd.XXXXXX.cfg)
+  cat > "$CFG" <<CFGEOF
+adapter driver linuxgpiod
+adapter gpio swclk 11 -chip $CHIP
+adapter gpio swdio 8 -chip $CHIP
+adapter gpio srst 17 -chip $CHIP
+transport select swd
+adapter speed 1000
+reset_config srst_only srst_push_pull
+source [find target/stm32f4x.cfg]
+CFGEOF
+  echo -e "\n${BOLD}Flashar MP101 via CM5 (SWD på GPIO11/8, reset GPIO17)...${NC}"
+  # BOOT0 hålls låg (start från flash) medan vi flashar
+  $S gpioset --chip "gpiochip$CHIP" --consumer mp101-boot0 16=0 >/dev/null 2>&1 &
+  BOOT_PID=$!
+  sleep 0.3
+  $S openocd -f "$CFG" -c "program {$ELF} verify reset exit"
+  RES=$?
+  $S kill "$BOOT_PID" 2>/dev/null; wait "$BOOT_PID" 2>/dev/null
+  # Fasta nivåer när ingen flashar: BOOT0 låg, NRST hög (annars kan STM32 fastna i reset)
+  $S pinctrl set 16 op dl; $S pinctrl set 17 op dh
+  rm -f "$CFG"
+  if [ $RES -ne 0 ]; then
+    echo -e "\n${RED}❌ Flashningen via CM5 misslyckades.${NC} Kontrollera att STM32 har ström (R39/SWDIO monterad)."
+    exit 1
+  fi
+  echo -e "\n${GREEN}✅ Flashningen slutförd och verifierad (\"Verified OK\"; meddelandet om reset-start är ofarligt).${NC}"
+  SKIP_OPENOCD=1
+fi
+
 # Kontrollera om ST-LINK syns på USB-bussen
-if ! lsusb | grep -qi "st-link"; then
+if [ -z "${SKIP_OPENOCD:-}" ] && ! lsusb | grep -qi "st-link"; then
   echo -e "${YELLOW}⚠️ Kunde inte hitta någon ST-LINK V2 ansluten via USB. Kontrollera kontakten.${NC}"
   read -p "Vill du försöka flasha ändå? Tryck [ENTER] för att köra OpenOCD (Ctrl+C avbryter)." RetryTrigger
 fi
 
+if [ -z "${SKIP_OPENOCD:-}" ]; then
 echo -e "\n${BOLD}Startar flashning via OpenOCD...${NC}"
 
 # Flasha ELF-filen, inte .bin: .bin täcker hela 0x08000000–slutet, inklusive
@@ -303,6 +346,7 @@ else
   echo -e "sitter stabilt på styrkortets SWD-pinnar och testa igen."
   exit 1
 fi
+fi   # SKIP_OPENOCD
 
 # ------------------------------------------------------------------------------
 # 🔬 STEG 3: Kontroll efter flashningen
