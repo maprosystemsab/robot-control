@@ -49,7 +49,7 @@ systime_t last_reading_time = 0;
 static volatile uint32_t timer_overflow_count = 0; // antal overflow
 #endif
 static volatile uint32_t last_capture = 0;         // 32-bitars senaste capture
-#if defined(WHEELSPEED_MIN_LEVEL_S) && !defined(IS_ROVMCU)
+#ifdef WHEELSPEED_MIN_LEVEL_S
 // Avstudsning: en nivå på givaren räknas först när den legat still WHEELSPEED_MIN_LEVEL_S.
 static volatile uint32_t wl_edge_time = 0;     // senaste flank (capture32)
 static volatile bool wl_edge_level = false;    // nivån efter senaste flanken
@@ -278,7 +278,15 @@ void tach_input_init(void) {
     TIM2->PSC = STM32_TIMCLK1 / 100000U - 1U; // 10 us, same units as legacy
     TIM2->ARR = 0xFFFFFFFFU;
     TIM2->CCMR2 = TIM_CCMR2_CC4S_0;
+#ifdef WHEELSPEED_MIN_PERIOD_S
+    TIM2->CCMR2 |= TIM_CCMR2_IC4F;    // digitalt filter som på det gamla kortet (CC3)
+#endif
+#ifdef WHEELSPEED_MIN_LEVEL_S
+    TIM2->CCER = TIM_CCER_CC4E | TIM_CCER_CC4P | TIM_CCER_CC4NP; // båda flankerna: avstudsningen i avbrottet
+    wl_edge_level = wl_stable_level = palReadPad(TACHO_INPUT_PORT, 3);
+#else
     TIM2->CCER = TIM_CCER_CC4E; // rising edges
+#endif
     TIM2->EGR = TIM_EGR_UG;
     TIM2->CNT = 0;
     TIM2->SR = 0;
@@ -341,7 +349,31 @@ CH_IRQ_HANDLER(STM32_TIM2_HANDLER) {
 #ifdef IS_ROVMCU
     if (TIM2->SR & TIM_SR_CC4IF) {
         uint32_t capture = TIM2->CCR4;
+        TIM2->SR &= ~TIM_SR_CC4IF;
+        // Samma filter som det gamla kortet (CC3 nedan): utan dem räknade mk1 med MP101
+        // störspikar från styrmotorn som 400-1850 km/h (2026-10-28).
+#ifdef WHEELSPEED_MIN_LEVEL_S
+        bool level = palReadPad(TACHO_INPUT_PORT, 3);
+        bool count_rise = false;
+        uint32_t edge_time = capture;
+        if (level != wl_edge_level) {
+            if ((edge_time - wl_edge_time) >= (uint32_t)(WHEELSPEED_MIN_LEVEL_S * 100000.0) &&
+                    wl_edge_level != wl_stable_level) {
+                wl_stable_level = wl_edge_level;
+                if (wl_stable_level) {
+                    count_rise = true;
+                    capture = wl_edge_time;
+                }
+            }
+            wl_edge_time = edge_time;
+            wl_edge_level = level;
+        }
+        if (count_rise) {
+#endif
         uint32_t delta = capture - last_capture;
+#ifdef WHEELSPEED_MIN_PERIOD_S
+        if (!capture_started || delta >= (uint32_t)(WHEELSPEED_MIN_PERIOD_S * 100000.0)) {
+#endif
         last_capture = capture;
         last_reading_time = chVTGetSystemTimeX();
         // Ignore the first edge: it has no preceding pulse to measure against.
@@ -350,7 +382,12 @@ CH_IRQ_HANDLER(STM32_TIM2_HANDLER) {
             new_pulse = true;
         }
         capture_started = true;
-        TIM2->SR &= ~TIM_SR_CC4IF;
+#ifdef WHEELSPEED_MIN_PERIOD_S
+        }
+#endif
+#ifdef WHEELSPEED_MIN_LEVEL_S
+        }
+#endif
     }
 #else
     if (TIM2->SR & TIM_SR_UIF) {
