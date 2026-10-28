@@ -140,6 +140,7 @@ private slots:
     void logBroadcasterDataReceived(QByteArray &data);
     void nodstoppTick();
     void lageknappLampaTick();
+    void kursTick();
 //    QString processCommand(QByteArray &data);
 
 private:
@@ -196,6 +197,10 @@ private:
     // Läget skrivs till /run/lageknapp ("<läge> <unix-sekunder>", 0 släppt, 1 intryckt,
     // 2 hållen 3 s) för lägesväxlaren, och lampan hålls släckt (= RCS-läget) med [255][145][0].
     // Allt startar först när kortet skickat 144, så robotar utan knapp påverkas inte.
+    // Kurs från två antenner (MP101, robot-control scripts/kursdelare.py skriver /run/kurs:
+    // "<kurs> <noggrannhet> <unix-s> <fix> <längd>"). Färsk kurs skickas till kortet som
+    // [255][146][yaw*1e6][noggrannhet*1e6] fem gånger per sekund. Utan filen händer inget.
+    QTimer *mKursTimer = nullptr;
     QTimer *mLageknappTimer = nullptr;
     bool mLageknappFilFel = false;
     void lageknappMottagen(quint8 lage);

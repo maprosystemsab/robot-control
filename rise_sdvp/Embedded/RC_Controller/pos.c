@@ -375,6 +375,42 @@ void pos_set_yaw_offset(float angle) {
 	chMtxUnlock(&m_mutex_pos);
 }
 
+#ifdef IS_ROVMCU
+// Kurs från två antenner (moving base, kursdelare.py på CM5 -> Car_Client/robotd ->
+// CMD_SET_EXT_YAW). Den ersätter kursrättningen från GPS-färdriktningen så länge den är
+// färsk, och ger rätt kurs även när roboten står still.
+#define EXT_YAW_MAX_AGE_MS	1000
+#define EXT_YAW_MAX_ACC		5.0f	// grader: sämre mätningar används inte
+#define EXT_YAW_SNAP_DEG	20.0f	// större fel rättas direkt (t.ex. vid start)
+#define EXT_YAW_GAIN		0.2f	// annars denna del av felet per mätning (5 Hz)
+static volatile systime_t m_ext_yaw_time = 0;
+static volatile bool m_ext_yaw_have = false;
+
+bool pos_ext_yaw_fresh(void) {
+	return m_ext_yaw_have && ST2MS(chVTTimeElapsedSinceX(m_ext_yaw_time)) < EXT_YAW_MAX_AGE_MS;
+}
+
+void pos_set_ext_yaw(float yaw, float acc) {
+	if (!(acc >= 0.0f && acc <= EXT_YAW_MAX_ACC) || isnan(yaw)) {
+		return;
+	}
+	utils_norm_angle(&yaw);
+	chMtxLock(&m_mutex_pos);
+	float diff = utils_angle_difference(yaw, m_pos.yaw);
+	if (!pos_ext_yaw_fresh() || fabsf(diff) > EXT_YAW_SNAP_DEG) {
+		m_imu_yaw_offset -= diff;
+	} else {
+		m_imu_yaw_offset -= diff * EXT_YAW_GAIN;
+	}
+	utils_norm_angle(&m_imu_yaw_offset);
+	m_pos.yaw = m_pos.yaw_imu - m_imu_yaw_offset;
+	utils_norm_angle(&m_pos.yaw);
+	m_ext_yaw_time = chVTGetSystemTimeX();
+	m_ext_yaw_have = true;
+	chMtxUnlock(&m_mutex_pos);
+}
+#endif
+
 void pos_set_enu_ref(double lat, double lon, double height) {
 
 	double x, y, z;
@@ -1318,6 +1354,9 @@ static void correct_pos_gps(POS_STATE *pos)
 			}
 			POS_POINT mid = get_closest_point_to_time(
 					(pos->gps_ms + pos->gps_ang_corr_last_gps_ms) / 2.0);
+#ifdef IS_ROVMCU
+			if (!pos_ext_yaw_fresh())	// kursen från två antenner är bättre
+#endif
 			m_imu_yaw_offset -= utils_angle_difference(yaw_gps, mid.yaw) * andel;
 			utils_norm_angle(&m_imu_yaw_offset);
 
@@ -1356,6 +1395,9 @@ static void correct_pos_gps(POS_STATE *pos)
 		//Get change in yaw
 		float yaw_diff = utils_angle_difference(yaw_gps, closest.yaw);
 		//Move m_imu_yaw_offset towards (m_imu_yaw_offset - yaw_diff), with rate depending on set gain parameter
+#ifdef IS_ROVMCU
+		if (!pos_ext_yaw_fresh())	// kursen från två antenner är bättre
+#endif
 		utils_step_towards(&m_imu_yaw_offset, m_imu_yaw_offset - yaw_diff,
 				main_config.gps_corr_gain_yaw * pos->gps_corr_cnt);
 	}

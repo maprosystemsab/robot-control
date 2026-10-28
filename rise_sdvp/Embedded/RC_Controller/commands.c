@@ -620,6 +620,16 @@ void commands_process_packet(unsigned char *data, unsigned int len,
 #endif
 		} break;
 
+#ifdef IS_ROVMCU
+		case CMD_SET_EXT_YAW: {
+			// Ingen timeout_reset: kursen är ingen körorder.
+			int32_t ind = 0;
+			float yaw = buffer_get_float32(data, 1e6, &ind);
+			float acc = buffer_get_float32(data, 1e6, &ind);
+			pos_set_ext_yaw(yaw, acc);
+		} break;
+#endif
+
 		case CMD_SET_YAW_OFFSET:
 		case CMD_SET_YAW_OFFSET_ACK: {
 			timeout_reset();

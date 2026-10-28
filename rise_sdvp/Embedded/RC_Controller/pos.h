@@ -32,6 +32,10 @@ void pos_get_gps(GPS_STATE *p);
 float pos_get_speed(void);
 void pos_set_xya(float x, float y, float angle);
 void pos_set_yaw_offset(float angle);
+#ifdef IS_ROVMCU
+void pos_set_ext_yaw(float yaw, float acc);
+bool pos_ext_yaw_fresh(void);
+#endif
 void pos_set_enu_ref(double lat, double lon, double height);
 void pos_get_enu_ref(double *llh);
 void pos_reset_enu_ref(void);

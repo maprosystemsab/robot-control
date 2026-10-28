@@ -95,6 +95,10 @@ CarClient::CarClient(QObject *parent) : QObject(parent)
     mReconnectTimer = new QTimer(this);
     mReconnectTimer->start(2000);  // 2 second reconnect interval
     mTcpConnected = false;
+    mKursTimer = new QTimer(this);
+    connect(mKursTimer, SIGNAL(timeout()), this, SLOT(kursTick()));
+    mKursTimer->start(200);
+
     mLogFlushTimer = new QTimer(this);
     mLogFlushTimer->start(2000);  // 2 second log flush interval
     mRtklibRunning = false;
@@ -1715,6 +1719,38 @@ void CarClient::lageknappLampaTick()
     pkt.append((char)255);
     pkt.append((char)145);
     pkt.append((char)0);    // av = RCS-läget (kortet blinkar långsamt om ingen styr på 5 s)
+    mPacketInterface->sendPacket(pkt);
+}
+
+void CarClient::kursTick()
+{
+    QFile f("/run/kurs");
+    if (!f.open(QIODevice::ReadOnly)) {
+        return;
+    }
+    const QStringList d = QString::fromLatin1(f.readLine()).split(' ', Qt::SkipEmptyParts);
+    f.close();
+    if (d.size() < 4) {
+        return;
+    }
+    const double kurs = d[0].toDouble(), acc = d[1].toDouble(), tid = d[2].toDouble();
+    const int fix = d[3].toInt();
+    if (fix < 1 || QDateTime::currentMSecsSinceEpoch() / 1000.0 - tid > 1.0) {
+        return;
+    }
+    // Kompasskurs -> kortets yaw (robotd: kompass = 90 + yaw)
+    double yaw = kurs - 90.0;
+    while (yaw > 180.0) yaw -= 360.0;
+    while (yaw < -180.0) yaw += 360.0;
+    QByteArray pkt;
+    pkt.append((char)255);
+    pkt.append((char)146);
+    for (qint32 v : {(qint32)(yaw * 1e6), (qint32)(acc * 1e6)}) {
+        pkt.append((char)((v >> 24) & 0xFF));
+        pkt.append((char)((v >> 16) & 0xFF));
+        pkt.append((char)((v >> 8) & 0xFF));
+        pkt.append((char)(v & 0xFF));
+    }
     mPacketInterface->sendPacket(pkt);
 }
 
