@@ -95,6 +95,10 @@ CarClient::CarClient(QObject *parent) : QObject(parent)
     mReconnectTimer = new QTimer(this);
     mReconnectTimer->start(2000);  // 2 second reconnect interval
     mTcpConnected = false;
+    mHinderTimer = new QTimer(this);
+    connect(mHinderTimer, SIGNAL(timeout()), this, SLOT(hinderTick()));
+    mHinderTimer->start(50);
+
     mKursTimer = new QTimer(this);
     connect(mKursTimer, SIGNAL(timeout()), this, SLOT(kursTick()));
     mKursTimer->start(200);
@@ -1096,6 +1100,7 @@ void CarClient::readPendingDatagrams()
         mUdpSocket->readDatagram(datagram.data(), datagram.size(),
                                 &mHostAddress, &senderPort);
 
+        hinderFilter(datagram);
         if (nodstoppSparrar(datagram)) {
             continue;
         }
@@ -1227,6 +1232,7 @@ void CarClient::tcpRx(QByteArray &data)
 {
     qDebug() << "In CarClient::tcpRx";
     qDebug() << "data: " << data;
+    hinderFilter(data);
     if (nodstoppSparrar(data)) {
         return;
     }
@@ -1752,6 +1758,96 @@ void CarClient::kursTick()
         pkt.append((char)(v & 0xFF));
     }
     mPacketInterface->sendPacket(pkt);
+}
+
+void CarClient::hinderTick()
+{
+    static QElapsedTimer flagga;
+    if (!flagga.isValid() || flagga.elapsed() > 2000) {
+        flagga.start();
+        QFile ff("/etc/robotd/lidarstopp");
+        mHinderPa = ff.exists();
+        if (mHinderPa && ff.open(QIODevice::ReadOnly)) {
+            bool ok = false;
+            const double m = QString::fromLatin1(ff.readAll()).trimmed().replace(',', '.').toDouble(&ok);
+            mHinderStoppM = (ok && m > 0.2) ? m : 2.0;
+        }
+    }
+    if (!mHinderPa) {
+        if (mHinder) {
+            mHinder = false;
+            hinderMeddela("Lidarstopp avstängt");
+        }
+        return;
+    }
+
+    QString orsak;
+    QFile f("/run/lidar");
+    if (!f.open(QIODevice::ReadOnly)) {
+        orsak = "lidarn svarar inte (ingen /run/lidar)";
+    } else {
+        const QStringList d = QString::fromLatin1(f.readLine()).split(' ', Qt::SkipEmptyParts);
+        f.close();
+        if (d.size() < 5 || QDateTime::currentMSecsSinceEpoch() / 1000.0 - d[4].toDouble() > 0.5) {
+            orsak = "lidarn svarar inte";
+        } else if (d[0] != "-" && d[0].toDouble() <= mHinderStoppM) {
+            orsak = QString("något %1 m framför roboten").arg(d[0].toDouble(), 0, 'f', 1);
+        } else if (d[2] == "1") {
+            orsak = "lidarn ser inte fritt framför roboten";
+        }
+    }
+
+    static QElapsedTimer omsandning;
+    if (!orsak.isEmpty()) {
+        if (!mHinder) {
+            mHinder = true;
+            hinderMeddela("LIDARSTOPP: " + orsak + " — autopiloten av, ingen gas framåt");
+            omsandning.invalidate();
+        }
+        if (!omsandning.isValid() || omsandning.elapsed() > 1000) {
+            omsandning.start();
+            QByteArray ap;
+            ap.append((char)255); ap.append((char)59); ap.append((char)0);   // autopiloten av
+            mPacketInterface->sendPacket(ap);
+            QByteArray fart;
+            fart.append((char)255); fart.append((char)125); fart.append((char)10);
+            fart.append(QByteArray(4, 0));                                    // fart 0
+            mPacketInterface->sendPacket(fart);
+        }
+    } else if (mHinder) {
+        mHinder = false;
+        hinderMeddela("Lidarstopp: fritt framför roboten igen");
+    }
+}
+
+void CarClient::hinderFilter(QByteArray &data)
+{
+    if (!mHinder || data.size() < 3) {
+        return;
+    }
+    const quint8 cmd = (quint8)data[1];
+    if (cmd == 59) {                                    // CMD_AP_SET_ACTIVE: får inte slås på
+        data[2] = 0;
+    } else if (cmd == 125 && data.size() >= 7) {        // CMD_RC_CONTROL_ADV
+        const quint8 akt = (quint8)data[2];
+        if ((akt == 10 || akt == 20 || akt == 21) && nsInt32(data, 3) > 0) {
+            for (int i = 3; i < 7; i++) data[i] = 0;    // framåt -> 0, bakåt går
+        }
+    } else if (cmd == 121 && data.size() >= 7) {        // CMD_RC_CONTROL (RControlStation)
+        if ((quint8)data[2] != NS_RC_MODE_CURRENT_BRAKE && nsInt32(data, 3) > 0) {
+            for (int i = 3; i < 7; i++) data[i] = 0;
+        }
+    }
+}
+
+void CarClient::hinderMeddela(const QString &text)
+{
+    qWarning() << text;
+    QByteArray pkt;
+    pkt.append((char)mCarId);
+    pkt.append((char)0);   // CMD_PRINTF: syns i RControlStations terminal
+    pkt.append(text.toUtf8());
+    skickaTillKlienter(pkt);
 }
 
 void CarClient::skickaTillKlienter(const QByteArray &data)

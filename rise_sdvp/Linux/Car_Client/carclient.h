@@ -141,6 +141,7 @@ private slots:
     void nodstoppTick();
     void lageknappLampaTick();
     void kursTick();
+    void hinderTick();
 //    QString processCommand(QByteArray &data);
 
 private:
@@ -201,6 +202,19 @@ private:
     // "<kurs> <noggrannhet> <unix-s> <fix> <längd>"). Färsk kurs skickas till kortet som
     // [255][146][yaw*1e6][noggrannhet*1e6] fem gånger per sekund. Utan filen händer inget.
     QTimer *mKursTimer = nullptr;
+
+    // Hinderstopp med lidarn i RCS-läget (MP101 med Livox, autorobot lidarenhet skriver
+    // /run/lidar: "<fram_m> <bak_m> <paus> <sikt> <unix-s>"). Påslaget när
+    // /etc/robotd/lidarstopp finns (innehåll = stoppavstånd i m, standard 2,0). Ser lidarn
+    // något framför roboten, eller har den tystnat, stängs autopiloten av och all gas
+    // framåt blir 0 (RControlStation, Robotstyrning och telefonen går alla via Car_Client).
+    // Backa och styra går. Släpps när lidarn ser fritt igen.
+    QTimer *mHinderTimer = nullptr;
+    bool mHinderPa = false;
+    bool mHinder = false;
+    double mHinderStoppM = 2.0;
+    void hinderFilter(QByteArray &data);
+    void hinderMeddela(const QString &text);
     QTimer *mLageknappTimer = nullptr;
     bool mLageknappFilFel = false;
     void lageknappMottagen(quint8 lage);
