@@ -36,8 +36,8 @@ MARKERINGAR = [
     (2, "CAN1 (VESC)", 2714, 2257, 2972, 2463, GRON),
     (3, "CAN2", 2990, 2257, 3247, 2463, GRA),
     (4, "DI4 hjulgivare", 3271, 2257, 3477, 2463, GRON),
-    (5, "DI3", 3487, 2257, 3693, 2463, GRA),
-    (6, "DI2", 3703, 2257, 3908, 2463, GRA),
+    (5, "DI3 lampa", 3487, 2257, 3693, 2463, GRON),
+    (6, "DI2 lägesknapp", 3703, 2257, 3908, 2463, GRON),
     (7, "DI1 nödstopp", 3918, 2257, 4123, 2463, ORANGE),
     (8, "J30 analog in (vinkelgivare)", 2647, 976, 2763, 1283, GRON),
     (9, "X1 antenn GPS 1", 3487, 507, 3554, 573, BLA),
@@ -124,7 +124,7 @@ def main():
           "matningen till vänster till DI1 längst till höger. Kortet ligger som när du tittar "
           "ner på det med kontaktraden mot dig."),
         pdfstil.bild("_mp101_kort.png", 175,
-                     "Grönt = används av roboten · orange = nödstopp · blått = GPS · rött = matning · grått = ledigt. "
+                     "Grönt = används av roboten (DI2/DI3 bara med lägesknapp) · orange = nödstopp · blått = GPS · rött = matning · grått = ledigt. "
                      "Små siffror = stiftnummer, stift 1 är ifyllt."),
         h2("Kontaktraden förstorad"),
         pdfstil.bild("_mp101_rad.png", 175,
@@ -137,7 +137,8 @@ def main():
             ["2", "J20 / J12", "<b>CAN1</b>: VESC-motorstyrningarna (den som firmwaren använder)"],
             ["3", "J22 / J15", "CAN2: ledig (avstängd i firmwaren)"],
             ["4", "J26 / J42", "<b>DI4</b>: hastighetsgivaren (hjulpulser)"],
-            ["5–6", "J24/J37, J23/J32", "DI3, DI2: lediga (utgångar i firmwaren)"],
+            ["5", "J24 / J37", "<b>DI3</b>: lampan i lägesknappen (bara med både RCS och SentinAnt), annars ledig"],
+            ["6", "J23 / J32", "<b>DI2</b>: lägesknappen RCS ⇄ SentinAnt (NO-knapp), se nedan, annars ledig"],
             ["7", "J18 / J27", "<b>DI1</b>: nödstopp (NC-knapp), se nedan"],
             ["8", "J30", "<b>Analoga ingångar</b>: vinkelgivaren för styrningen (stift 2)"],
             ["9", "X1", "Antenn till GPS 1 (U10), den som används för position och RTK"],
@@ -196,6 +197,59 @@ def main():
         varning("Prova nödstoppet med roboten upphissad innan den körs: tryck in knappen, dra ur "
                 "kabeln, och kontrollera att RControlStation visar nödstopp båda gångerna. Använd "
                 "inte Car_Clients nödstopp (--nodstopp-gpio) samtidigt."),
+
+        h1("Lägesknappen: DI2 och DI3 (nr 6 och 5)"),
+        p("Bara för robotar som har <b>både</b> RControlStation/Robotstyrning och SentinAnt. "
+          "Bara ett av programmen kan styra roboten åt gången, eftersom båda behöver styrkortet, "
+          "GPS:en och samma nätportar. Lägesknappen byter mellan dem utan att lådan behöver öppnas. "
+          "Robotar med bara det ena programmet har ingen knapp."),
+        p("<b>DI2 (nr 6): knappen.</b>"),
+        tabell([
+            ["Stift", "Funktion"],
+            ["1", "+5 V ut (säkrad): till pull-up-motståndet"],
+            ["2", "<b>Signal</b> (ingång): till knappen och motståndet"],
+            ["3", "<b>GND</b>: till knappens andra sida"],
+        ], bredder=[20, 155]),
+        punkter([
+            "Knappen ska vara en <b>NO-knapp</b> (öppen i vila, sluter när man trycker; multimetern "
+            "piper bara när knappen är intryckt). Momentan, inte låsande.",
+            "Koppla knappen mellan <b>stift 2</b> och <b>stift 3</b>.",
+            "DI2 saknar pull-up på kortet (R129 är inte monterad). Sätt ett motstånd på "
+            "<b>1–10 kΩ mellan stift 1 och stift 2</b> (4,7 kΩ provat), enklast i knappens skruvplintar.",
+            "Kontroll med multimeter mellan stift 2 och 3: <b>cirka 5 V släppt, 0 V intryckt</b>.",
+        ]),
+        varning("Flasha aldrig med lägesknappen utan knapp och motstånd på DI2. Ingången flyter då och "
+                "kan läsas som intryckt. Lägesväxlaren byter ändå inte läge förrän den sett knappen "
+                "släppt en gång, men knappen fungerar inte."),
+        h2("DI3: lampan"),
+        punkter([
+            "Lysdioden i knappen: <b>+ till stift 2</b>, <b>− till stift 3</b> (GND).",
+            "DI3 ger cirka 5 V genom 220 Ω (R77) på kortet. Välj en knapp med lysdiod för "
+            "<b>3–5 V</b> (inte 12/24 V). Bara en lysdiod direkt; större last kräver en transistor.",
+            "Fast sken = SentinAnt-läget. Släckt = RCS-läget. Långsam blink = ingen styr kortet "
+            "(till exempel mitt i ett byte).",
+        ]),
+        h2("Byta läge"),
+        punkter([
+            "<b>Håll in knappen i 3 s.</b> Roboten byter till det andra läget. Det tar några "
+            "sekunder; ett tryck ger ett byte.",
+            "Bytet görs bara när roboten står still och ingen är ansluten: ingen RControlStation, "
+            "Robotstyrning eller SentinAnt (koppla från först). Annars händer ingenting.",
+            "Läget sparas och gäller efter omstart.",
+            "Ansluter man med fel program säger det vilket läge roboten är i och att knappen ska "
+            "hållas in i 3 s.",
+            "Utan knapp, från en terminal på roboten: <i>sudo byt_lage.sh sentinant</i>, "
+            "<i>sudo byt_lage.sh rcs</i> eller <i>byt_lage.sh status</i>.",
+        ]),
+        h2("Firmwaren och programmen"),
+        p("Knappen byggs in i firmwaren bara när den slås på, som nödstoppet: "
+          "<i>./flash_styrkort.sh --maskin rovmcu --profil robant --nodstopp-di1 --lagesknapp-di2</i>. "
+          "Skapa filen <i>/etc/robotd/lagesknapp-di2</i> (<i>sudo touch /etc/robotd/lagesknapp-di2</i>), "
+          "så kommer knappen med när roboten uppdateras. SentinAnt installeras bredvid med "
+          "SentinAnts <i>scripts/ny_robot.sh</i>; det lägger också in lägesväxlaren."),
+        tips("Uppdatera robot-control-sidan (<i>uppdatera.sh</i>) i RCS-läget och SentinAnt-sidan "
+             "(<i>skicka_robotd.sh</i>) när som helst. Uppdateringen av robot-control säger till om "
+             "roboten står i SentinAnt-läget."),
 
         h1("Vinkelgivaren: J30 (nr 8)"),
         p("J30 har tre analoga ingångar (0–5 V, spänningsdelare 20k/10k på kortet). Vinkelgivaren "
