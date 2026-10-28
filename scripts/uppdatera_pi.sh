@@ -25,6 +25,14 @@ steg() { echo -e "\n${GREEN}=== $* ===${NC}"; }
 FEL=0
 fel() { echo -e "${RED}FEL: $*${NC}"; FEL=1; }
 
+# Robot med både robot-control och SentinAnt (lägesknappen, autorobot LAGESKNAPP_PLAN.md):
+# i SentinAnt-läget kör inte Car_Client, så styrkortet går varken att läsa av eller flasha.
+if [ "$(cat /etc/sentinant/lage 2>/dev/null)" = sentinant ]; then
+  echo -e "${YELLOW}Roboten är i SentinAnt-läget. Byt till RCS-läget först (håll lägesknappen 3 s,"
+  echo -e "eller: sudo byt_lage.sh rcs) och kör uppdateringen igen.${NC}"
+  exit 1
+fi
+
 MASKIN="${MASKIN:-$(cat "$HOME/.config/robot-control/maskin" 2>/dev/null || echo robant)}"
 # Kortet: nya ROV_MCU (MP101, Upwis) sitter ihop med en CM5; annars det gamla styrkortet.
 KORTTYP="gamla"
