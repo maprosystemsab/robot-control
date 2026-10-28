@@ -268,6 +268,9 @@ def main():
             "Behåll vinkelgivarens matning som i dag. Koppla signalen till stift 2 och jord till stift 5.",
             "Inom styrutslaget (±30°) ger givaren cirka 2,1–2,9 V, med god marginal till 5 V.",
             "Efter inkoppling: kör <i>Kalibrera styrvinkel…</i> i RControlStation som vanligt.",
+            "Står vinkeln still på ett fast värde (till exempel cirka 3,3 V/54°) fast hjulen vrids: "
+            "kontrollera <b>GND till stift 5</b>. Utan jord följer signalen givarens matning "
+            "(hände på mk1 2026-10-28).",
         ]),
         tips("Firmwaren läser vinkelgivaren på J30 stift 2 från och med 2026-10-22 (rise_sdvp 74aced19). "
              "Självcentrering, autocentrering och vändning fungerar som på det gamla kortet. "
