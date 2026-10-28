@@ -1762,6 +1762,10 @@ void CarClient::kursTick()
 
 void CarClient::hinderTick()
 {
+    const double SAKTA_M = 4.0;    // gasen börjar sänkas
+    const double STOPP_M = 1.0;    // ingen gas framåt (dosan)
+    const double MIN_SIKT = 0.5;   // som lidarenhetens min_coverage
+
     static QElapsedTimer flagga;
     if (!flagga.isValid() || flagga.elapsed() > 2000) {
         flagga.start();
@@ -1774,47 +1778,70 @@ void CarClient::hinderTick()
         }
     }
     if (!mHinderPa) {
-        if (mHinder) {
+        if (mHinder || mHinderFaktor < 1.0) {
             mHinder = false;
+            mHinderFaktor = 1.0;
             hinderMeddela("Lidarstopp avstängt");
         }
         return;
     }
 
-    QString orsak;
+    QString sparr;       // all gas framåt spärrad
+    double fram = -1.0;  // närmaste hinder framför fronten, -1 = inget
     QFile f("/run/lidar");
     if (!f.open(QIODevice::ReadOnly)) {
-        orsak = "lidarn svarar inte (ingen /run/lidar)";
+        sparr = "lidarn svarar inte (ingen /run/lidar)";
     } else {
         const QStringList d = QString::fromLatin1(f.readLine()).split(' ', Qt::SkipEmptyParts);
         f.close();
         if (d.size() < 5 || QDateTime::currentMSecsSinceEpoch() / 1000.0 - d[4].toDouble() > 0.5) {
-            orsak = "lidarn svarar inte";
-        } else if (d[0] != "-" && d[0].toDouble() <= mHinderStoppM) {
-            orsak = QString("något %1 m framför roboten").arg(d[0].toDouble(), 0, 'f', 1);
-        } else if (d[2] == "1") {
-            orsak = "lidarn ser inte fritt framför roboten";
+            sparr = "lidarn svarar inte";
+        } else {
+            if (d[0] != "-") {
+                fram = d[0].toDouble();
+            }
+            if (d[3].toDouble() < MIN_SIKT) {
+                sparr = "lidarn ser inte fritt framför roboten";
+            } else if (fram >= 0.0 && fram <= STOPP_M) {
+                sparr = QString("något %1 m framför roboten").arg(fram, 0, 'f', 1);
+            }
         }
     }
 
+    mHinderFaktor = sparr.isEmpty() && fram >= 0.0
+            ? qBound(0.0, (fram - STOPP_M) / (SAKTA_M - STOPP_M), 1.0)
+            : (sparr.isEmpty() ? 1.0 : 0.0);
+    const bool apStopp = !sparr.isEmpty() || (fram >= 0.0 && fram <= mHinderStoppM);
+
     static QElapsedTimer omsandning;
-    if (!orsak.isEmpty()) {
-        if (!mHinder) {
-            mHinder = true;
-            hinderMeddela("LIDARSTOPP: " + orsak + " — autopiloten av, ingen gas framåt");
-            omsandning.invalidate();
-        }
-        if (!omsandning.isValid() || omsandning.elapsed() > 1000) {
+    static bool apStoppat = false;
+    if (apStopp) {
+        if (!apStoppat || !omsandning.isValid() || omsandning.elapsed() > 1000) {
+            if (!apStoppat) {
+                hinderMeddela("LIDARSTOPP: " + (sparr.isEmpty()
+                        ? QString("något %1 m framför roboten").arg(fram, 0, 'f', 1) : sparr)
+                        + " — autopiloten av");
+            }
+            apStoppat = true;
             omsandning.start();
             QByteArray ap;
             ap.append((char)255); ap.append((char)59); ap.append((char)0);   // autopiloten av
             mPacketInterface->sendPacket(ap);
-            QByteArray fart;
-            fart.append((char)255); fart.append((char)125); fart.append((char)10);
-            fart.append(QByteArray(4, 0));                                    // fart 0
-            mPacketInterface->sendPacket(fart);
         }
-    } else if (mHinder) {
+    } else if (apStoppat) {
+        apStoppat = false;
+    }
+
+    if (!sparr.isEmpty() && !mHinder) {
+        mHinder = true;
+        if (apStoppat) {
+            hinderMeddela("LIDARSTOPP: " + sparr + " — ingen gas framåt");
+        }
+        QByteArray fart;
+        fart.append((char)255); fart.append((char)125); fart.append((char)10);
+        fart.append(QByteArray(4, 0));                                    // fart 0
+        mPacketInterface->sendPacket(fart);
+    } else if (sparr.isEmpty() && mHinder) {
         mHinder = false;
         hinderMeddela("Lidarstopp: fritt framför roboten igen");
     }
@@ -1822,20 +1849,31 @@ void CarClient::hinderTick()
 
 void CarClient::hinderFilter(QByteArray &data)
 {
-    if (!mHinder || data.size() < 3) {
+    if (!mHinderPa || mHinderFaktor >= 1.0 || data.size() < 3) {
         return;
     }
     const quint8 cmd = (quint8)data[1];
-    if (cmd == 59) {                                    // CMD_AP_SET_ACTIVE: får inte slås på
+    auto skala = [&](int ind) {
+        const qint32 v = nsInt32(data, ind);
+        if (v <= 0) {
+            return;                                     // bakåt och stopp går igenom
+        }
+        const qint32 n = (qint32)(v * mHinderFaktor);
+        data[ind] = (char)((n >> 24) & 0xFF);
+        data[ind + 1] = (char)((n >> 16) & 0xFF);
+        data[ind + 2] = (char)((n >> 8) & 0xFF);
+        data[ind + 3] = (char)(n & 0xFF);
+    };
+    if (cmd == 59) {                                    // CMD_AP_SET_ACTIVE: startar inte med hinder inom 4 m
         data[2] = 0;
     } else if (cmd == 125 && data.size() >= 7) {        // CMD_RC_CONTROL_ADV
         const quint8 akt = (quint8)data[2];
-        if ((akt == 10 || akt == 20 || akt == 21) && nsInt32(data, 3) > 0) {
-            for (int i = 3; i < 7; i++) data[i] = 0;    // framåt -> 0, bakåt går
+        if (akt == 10 || akt == 20 || akt == 21) {
+            skala(3);
         }
     } else if (cmd == 121 && data.size() >= 7) {        // CMD_RC_CONTROL (RControlStation)
-        if ((quint8)data[2] != NS_RC_MODE_CURRENT_BRAKE && nsInt32(data, 3) > 0) {
-            for (int i = 3; i < 7; i++) data[i] = 0;
+        if ((quint8)data[2] != NS_RC_MODE_CURRENT_BRAKE) {
+            skala(3);
         }
     }
 }

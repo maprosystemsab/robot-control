@@ -206,13 +206,16 @@ private:
     // Hinderstopp med lidarn i RCS-läget (MP101 med Livox, autorobot lidarenhet skriver
     // /run/lidar: "<fram_m> <bak_m> <paus> <sikt> <unix-s>"). Påslaget när
     // /etc/robotd/lidarstopp finns (innehåll = stoppavstånd i m, standard 2,0). Ser lidarn
-    // något framför roboten, eller har den tystnat, stängs autopiloten av och all gas
-    // framåt blir 0 (RControlStation, Robotstyrning och telefonen går alla via Car_Client).
-    // Backa och styra går. Släpps när lidarn ser fritt igen.
+    // något framför roboten inom robotens bredd saktas gasen framåt ner: full gas längre
+    // bort än 4 m, ingen gas närmare än 1 m (styr man undan släpper det). Autopiloten
+    // stängs av vid stoppavståndet (filens värde, 2 m). Ser lidarn inte fritt eller har den
+    // tystnat blir all gas framåt 0. RControlStation, Robotstyrning och telefonen går alla
+    // via Car_Client. Backa och styra går alltid.
     QTimer *mHinderTimer = nullptr;
     bool mHinderPa = false;
-    bool mHinder = false;
-    double mHinderStoppM = 2.0;
+    bool mHinder = false;          // gasen framåt helt spärrad
+    double mHinderFaktor = 1.0;    // 0..1, gasen framåt multipliceras med den
+    double mHinderStoppM = 2.0;    // autopiloten av
     void hinderFilter(QByteArray &data);
     void hinderMeddela(const QString &text);
     QTimer *mLageknappTimer = nullptr;
