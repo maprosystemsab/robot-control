@@ -405,6 +405,9 @@ void pos_set_ext_yaw(float yaw, float acc) {
 	utils_norm_angle(&m_imu_yaw_offset);
 	m_pos.yaw = m_pos.yaw_imu - m_imu_yaw_offset;
 	utils_norm_angle(&m_pos.yaw);
+	// Står roboten still låser pos.c kursen vid m_yaw_imu_clamp (clamp_imu_yaw_stationary),
+	// så låset måste följa med, annars skrivs rättningen över direkt (mk1 2026-10-28).
+	m_yaw_imu_clamp = m_pos.yaw;
 	m_ext_yaw_time = chVTGetSystemTimeX();
 	m_ext_yaw_have = true;
 	chMtxUnlock(&m_mutex_pos);
