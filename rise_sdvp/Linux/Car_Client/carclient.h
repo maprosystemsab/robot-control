@@ -216,6 +216,8 @@ private:
     bool mHinder = false;          // gasen framåt helt spärrad
     double mHinderFaktor = 1.0;    // 0..1, gasen framåt multipliceras med den
     double mHinderStoppM = 2.0;    // autopiloten av
+    bool mApOnskad = false;        // senaste kommandot från RCS/robotd: autopiloten på
+    bool mApVantar = false;        // lidarn håller autopiloten stilla, startas igen vid fritt
     void hinderFilter(QByteArray &data);
     void hinderMeddela(const QString &text);
     QTimer *mLageknappTimer = nullptr;

@@ -1785,6 +1785,7 @@ void CarClient::hinderTick()
         }
     }
     if (!mHinderPa) {
+        mApVantar = false;
         if (mHinder || mHinderFaktor < 1.0) {
             mHinder = false;
             mHinderFaktor = 1.0;
@@ -1834,10 +1835,37 @@ void CarClient::hinderTick()
             omsandning.start();
             QByteArray ap;
             ap.append((char)255); ap.append((char)59); ap.append((char)0);   // autopiloten av
+            ap.append((char)0);                                               // utan att nollställa banan
             mPacketInterface->sendPacket(ap);
         }
     } else if (apStoppat) {
         apStoppat = false;
+    }
+
+    // Autopiloten fortsätter av sig själv när det varit fritt (inget inom sakta-avståndet)
+    // i 3 s, om lidarn stoppade den och ingen stängt av den eller kört själv under tiden.
+    // Firmwaren minns var på banan den var (m_point_now), så den börjar inte om.
+    if (apStopp && mApOnskad) {
+        mApVantar = true;
+    }
+    if (mNsLage != NS_AV && mNsLage != NS_OK) {
+        mApOnskad = false;
+        mApVantar = false;
+    }
+    static QElapsedTimer fritt;
+    if (!mApVantar || apStopp || mHinderFaktor < 1.0) {
+        fritt.invalidate();
+    } else if (!fritt.isValid()) {
+        fritt.start();
+        hinderMeddela("Lidarstopp: fritt — autopiloten fortsätter om 3 s");
+    } else if (fritt.elapsed() >= 3000) {
+        fritt.invalidate();
+        mApVantar = false;
+        hinderMeddela("Lidarstopp: fritt — autopiloten fortsätter");
+        QByteArray ap;
+        ap.append((char)255); ap.append((char)59); ap.append((char)1);   // autopiloten på
+        ap.append((char)0);
+        mPacketInterface->sendPacket(ap);
     }
 
     if (!sparr.isEmpty() && !mHinder) {
@@ -1880,10 +1908,24 @@ void CarClient::hinderTick()
 
 void CarClient::hinderFilter(QByteArray &data)
 {
-    if (!mHinderPa || mHinderFaktor >= 1.0 || data.size() < 3) {
+    if (!mHinderPa || data.size() < 3) {
         return;
     }
     const quint8 cmd = (quint8)data[1];
+    // Vad föraren vill: autopiloten på/av, eller egen gas (då tar föraren över och
+    // autopiloten startas inte igen av lidarn).
+    if (cmd == 59) {
+        mApOnskad = data[2] != 0;
+        mApVantar = mApOnskad && mHinderFaktor < 1.0;
+    } else if (((cmd == 125 && data.size() >= 7 && (quint8)data[2] == 10)
+                || (cmd == 121 && data.size() >= 7 && (quint8)data[2] != NS_RC_MODE_CURRENT_BRAKE))
+               && nsInt32(data, 3) != 0) {
+        mApOnskad = false;
+        mApVantar = false;
+    }
+    if (mHinderFaktor >= 1.0) {
+        return;
+    }
     auto skala = [&](int ind) {
         const qint32 v = nsInt32(data, ind);
         if (v <= 0) {
