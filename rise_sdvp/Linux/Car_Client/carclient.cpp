@@ -1762,19 +1762,26 @@ void CarClient::kursTick()
 
 void CarClient::hinderTick()
 {
-    const double SAKTA_M = 4.0;    // gasen börjar sänkas
-    const double STOPP_M = 1.0;    // ingen gas framåt (dosan)
     const double MIN_SIKT = 0.5;   // som lidarenhetens min_coverage
 
+    // /etc/robotd/lidarstopp: "<autopilot_m> [<stopp_m> [<sakta_m>]]", standard 2,0 0,4 2,5.
+    // stopp_m: ingen gas framåt (dosan); sakta_m: gasen börjar sänkas.
     static QElapsedTimer flagga;
+    static double STOPP_M = 0.4, SAKTA_M = 2.5;
     if (!flagga.isValid() || flagga.elapsed() > 2000) {
         flagga.start();
         QFile ff("/etc/robotd/lidarstopp");
         mHinderPa = ff.exists();
         if (mHinderPa && ff.open(QIODevice::ReadOnly)) {
-            bool ok = false;
-            const double m = QString::fromLatin1(ff.readAll()).trimmed().replace(',', '.').toDouble(&ok);
-            mHinderStoppM = (ok && m > 0.2) ? m : 2.0;
+            const QStringList v = QString::fromLatin1(ff.readAll()).replace(',', '.').simplified().split(' ');
+            auto tal = [&](int i, double std) {
+                bool ok = false;
+                const double m = v.size() > i ? v[i].toDouble(&ok) : 0.0;
+                return ok ? m : std;
+            };
+            mHinderStoppM = qMax(0.2, tal(0, 2.0));
+            STOPP_M = qMax(0.2, tal(1, 0.4));
+            SAKTA_M = qMax(tal(2, 2.5), STOPP_M + 0.3);
         }
     }
     if (!mHinderPa) {

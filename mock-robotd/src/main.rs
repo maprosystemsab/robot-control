@@ -310,9 +310,9 @@ fn mock_lidar(s: &mut StatusUpdate, t: f32) {
         .collect();
     let fram = lx - lr - fram_kant;
     s.lidar_vy = Some(relay_protocol::LidarVy { cell, x0, x1, y: hy, robot: [fram_kant, bak, hw], fram: Some(fram), rader });
-    let gas = ((fram - 1.0) / 3.0).clamp(0.0, 1.0);
+    let gas = ((fram - 0.4) / 2.1).clamp(0.0, 1.0);
     s.lidar_gas = Some(gas);
-    s.lidar_text = if fram <= 1.0 {
+    s.lidar_text = if fram <= 0.4 {
         Some(format!("något {:.1} m framför roboten", fram).replace('.', ","))
     } else if gas < 1.0 {
         Some(format!("något {:.1} m framför roboten", fram).replace('.', ","))
