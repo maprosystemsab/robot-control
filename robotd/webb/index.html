@@ -366,6 +366,14 @@ function estopText() {
   if (e === "sparrad") return "utdraget – släpper spärren…";
   return "knappen går inte att läsa (kabel?)";
 }
+// Som lidarvy::stopp_text i Robotstyrning: [text, röd] eller null.
+function lidarText() {
+  const st = s.status;
+  if (!st || st.lidar_gas == null || st.lidar_gas >= 1) return null;
+  const orsak = st.lidar_text || "";
+  return st.lidar_gas <= 0 ? ["LIDARSTOPP – ingen gas framåt: " + orsak, true]
+                           : [`Lidarn saktar in (${Math.round(st.lidar_gas * 100)} % gas): ${orsak}`, false];
+}
 function f(v, d, enh) { return v == null || !isFinite(v) ? "–" : v.toFixed(d) + enh; }
 setInterval(() => {
   const st = s.status, farsk = st && Date.now() - s.statusAt < 3000;
@@ -377,6 +385,8 @@ setInterval(() => {
     h += `<span>Batt ${f(st.battery_percent, 0, " %")} ${f(st.battery_voltage, 1, " V")}</span>`;
     h += `<span>Styr ${st.steering_deg != null ? f(st.steering_deg, 0, "°") : f(st.steering_percent, 0, " %")}</span>`;
     if (estopText()) h += `<span class="bad"><b>NÖDSTOPP: ${estopText()}</b></span>`;
+    const li = lidarText();
+    if (li) h += `<span class="${li[1] ? "bad" : "warn"}"><b>${li[0]}</b></span>`;
     if (st.fault_text) h += `<span class="warn">${st.fault_text}</span>`;
   } else if (ws && ws.readyState === 1) h += `<span class="warn">Ingen status från roboten</span>`;
   h += `<span>${s.fps.toFixed(0)} bilder/s</span>`;
@@ -536,6 +546,7 @@ function ritaXrStatus(c, W, H) {
   }
   if (s.rtt != null) rad1.push("Svar " + s.rtt + " ms");
   if (estopText()) rad1.push("NÖDSTOPP: " + estopText());
+  if (lidarText()) rad1.push(lidarText()[0]);
   const h = Math.round(H * 0.07);
   c.fillStyle = s.aktiv ? "rgba(170,30,20,.75)" : "rgba(0,0,0,.6)";
   c.fillRect(0, 0, W, h);

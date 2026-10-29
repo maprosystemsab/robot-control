@@ -6,6 +6,7 @@ mod display;
 mod drive_log;
 mod estop;
 mod gpio_lighting;
+mod lidar;
 mod ramp;
 mod router;
 mod serial_bridge;
@@ -247,6 +248,11 @@ async fn main() {
                     );
 
                     status.estop = estop_state.map(|s| s.as_str().to_string());
+                    if let Some((gas, text)) = lidar::read_stopp() {
+                        status.lidar_gas = Some(gas);
+                        status.lidar_text = text;
+                    }
+                    status.lidar_vy = lidar::read_vy();
 
                     // Körlogg: en fil per körning (medan länken till styrkortet är uppe,
                     // dvs. medan någon är ansluten), en rad per sekund.
@@ -569,6 +575,7 @@ fn build_status(
         signal_info: signal.and_then(|s| s.info),
         estop: None,
         autocenter: t.autocenter,
+        ..Default::default()
     }
 }
 

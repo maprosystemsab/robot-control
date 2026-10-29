@@ -13,6 +13,7 @@ mod net;
 mod settings;
 mod video;
 mod guide;
+mod lidarvy;
 
 use std::time::{Duration, Instant};
 
@@ -101,6 +102,8 @@ struct App {
     video_texture: Option<egui::TextureHandle>,
     /// Röd färdlinje i kamerabilden och bakhjulsvyn (knappen "Färdlinje").
     show_guide: bool,
+    /// Lidarvyn i nedre vänstra hörnet: stor (klick växlar).
+    lidar_stor: bool,
     /// Förarens Max (0..1) som i RControlStation, sparas mellan körningar.
     max_output: f32,
     /// Körloggsfönstret: öppet, listan från roboten och senaste meddelande.
@@ -134,6 +137,7 @@ impl App {
             video_port: 9001,
             video_texture: None,
             show_guide: true,
+            lidar_stor: false,
             max_output: load_max_output(),
             logs_open: false,
             logs: Vec::new(),
@@ -552,6 +556,36 @@ impl App {
                             }
                         });
                     });
+
+                // Lidarstoppet: säg varför gasen framåt försvinner.
+                let lidar = self.net.fresh_status().map(|s| (lidarvy::stopp_text(s), s.lidar_vy.clone()));
+                if let Some((Some((text, rod)), _)) = &lidar {
+                    egui::Area::new("lidarstopp".into())
+                        .anchor(egui::Align2::CENTER_BOTTOM, egui::vec2(0.0, -40.0))
+                        .show(ctx, |ui| {
+                            let fill = if *rod { egui::Color32::from_rgb(200, 0, 0) } else { egui::Color32::from_rgba_unmultiplied(200, 120, 0, 230) };
+                            egui::Frame::none()
+                                .fill(fill)
+                                .rounding(6.0)
+                                .inner_margin(egui::Margin::symmetric(14.0, 8.0))
+                                .show(ui, |ui| {
+                                    ui.label(egui::RichText::new(text).color(egui::Color32::WHITE).size(if *rod { 22.0 } else { 18.0 }).strong());
+                                });
+                        });
+                }
+                // Vad lidarn ser, ovanifrån: nedre vänstra hörnet. Klick = större.
+                if let Some((stopp, Some(vy))) = &lidar {
+                    let storlek = lidarvy::size(vy, if self.lidar_stor { 7.0 } else { 3.0 });
+                    egui::Area::new("lidarvy".into())
+                        .anchor(egui::Align2::LEFT_BOTTOM, egui::vec2(16.0, -16.0))
+                        .show(ctx, |ui| {
+                            let (r, svar) = ui.allocate_exact_size(storlek, egui::Sense::click());
+                            lidarvy::draw(ui.painter(), r, vy, stopp.as_ref().is_some_and(|(_, rod)| *rod));
+                            if svar.on_hover_text("Lidarn ovanifrån (framåt uppåt). Klicka för större/mindre.").clicked() {
+                                self.lidar_stor = !self.lidar_stor;
+                            }
+                        });
+                }
 
                 if !self.activated {
                     egui::Area::new("activate".into())

@@ -205,6 +205,35 @@ pub struct StatusUpdate {
     /// 3 av p.g.a. givar-/styrfel. `None` = okänt (äldre firmware, ingen givare i config).
     #[serde(default)]
     pub autocenter: Option<u8>,
+    /// Lidarstoppet i Car_Client (2026-10-29): andelen gas framåt som släpps igenom
+    /// (1 = allt, 0 = ingen). `None` = inget lidarstopp på roboten.
+    #[serde(default)]
+    pub lidar_gas: Option<f32>,
+    /// Varför gasen framåt begränsas, t.ex. "något 0,8 m framför roboten". `None` = fritt.
+    #[serde(default)]
+    pub lidar_text: Option<String>,
+    /// Vad lidarn ser, ovanifrån. `None` = ingen lidar (eller den svarar inte).
+    #[serde(default)]
+    pub lidar_vy: Option<LidarVy>,
+}
+
+/// Lidarns vy ovanifrån i robotens koordinater (x framåt, y åt vänster, meter).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct LidarVy {
+    /// Cellernas storlek (m).
+    pub cell: f32,
+    /// Rutan: bakre och främre kant längs x, halva bredden längs y.
+    pub x0: f32,
+    pub x1: f32,
+    pub y: f32,
+    /// Robotens kropp: [fram, bak, halv bredd] från samma nollpunkt.
+    pub robot: [f32; 3],
+    /// Närmaste hinder framför roboten (m).
+    #[serde(default)]
+    pub fram: Option<f32>,
+    /// En rad per cell längs x, främsta först; ett tecken per cell från vänster till
+    /// höger: ' ' = inget sett, '.' = mark, '#' = hinder.
+    pub rader: Vec<String>,
 }
 
 /// En körlogg på roboten (CSV, en per körning).

@@ -1783,6 +1783,7 @@ void CarClient::hinderTick()
             mHinderFaktor = 1.0;
             hinderMeddela("Lidarstopp avstängt");
         }
+        QFile::remove("/tmp/lidarstopp_status");
         return;
     }
 
@@ -1844,6 +1845,29 @@ void CarClient::hinderTick()
     } else if (sparr.isEmpty() && mHinder) {
         mHinder = false;
         hinderMeddela("Lidarstopp: fritt framför roboten igen");
+    }
+
+    // Läget till robotd (Robotstyrning visar varför gasen försvinner):
+    // "<gasfaktor 0..1> <unix-s> <närmaste fram m eller -> <text>"
+    QString text = sparr;
+    if (text.isEmpty() && mHinderFaktor < 1.0) {
+        text = QString("något %1 m framför roboten").arg(fram, 0, 'f', 1);
+    }
+    static QElapsedTimer skrivet;
+    static QString sistText;
+    if (text == sistText && skrivet.isValid() && skrivet.elapsed() < 250) {
+        return;   // 4 Hz räcker, och /tmp kan ligga på SD-kortet
+    }
+    sistText = text;
+    skrivet.start();
+    QFile sf("/tmp/lidarstopp_status.tmp");
+    if (sf.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+        sf.write(QString("%1 %2 %3 %4\n").arg(mHinderFaktor, 0, 'f', 2)
+                 .arg(QDateTime::currentMSecsSinceEpoch() / 1000.0, 0, 'f', 1)
+                 .arg(fram >= 0.0 ? QString::number(fram, 'f', 2) : QString("-"))
+                 .arg(text).toUtf8());
+        sf.close();
+        ::rename("/tmp/lidarstopp_status.tmp", "/tmp/lidarstopp_status");
     }
 }
 

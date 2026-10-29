@@ -118,6 +118,7 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
 
     const STALE_TIMEOUT: Duration = Duration::from_secs(5);
     let mut last_msg_at = Instant::now();
+    let start = Instant::now();
     let mut stale_check = tokio::time::interval(Duration::from_secs(1));
 
     loop {
@@ -154,7 +155,10 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     signal_info: Some("4G Telia · RSRP −95 dBm · SINR 12 dB".to_string()),
                     estop: None,
                     autocenter: Some(1),
+                    ..Default::default()
                 };
+                let mut status = status;
+                mock_lidar(&mut status, start.elapsed().as_secs_f32());
                 if send(&mut ws_tx, &RobotMessage::Status(status)).await.is_err() {
                     break;
                 }
@@ -278,4 +282,41 @@ async fn send<T: serde::Serialize>(
 ) -> Result<(), axum::Error> {
     let text = serde_json::to_string(msg).unwrap();
     tx.send(Message::Text(text)).await
+}
+
+/// Påhittad lidar: en låda som rör sig fram och tillbaka framför roboten, så att
+/// lidarvyn och lidarstoppet syns i appen.
+fn mock_lidar(s: &mut StatusUpdate, t: f32) {
+    let (fram_kant, bak, hw) = (0.23_f32, 1.65_f32, 0.675_f32);
+    let (lx, ly, lr) = (fram_kant + 0.6 + 3.5 * (1.0 + (t / 4.0).sin()), 0.3_f32, 0.35_f32);
+    let (x0, x1, hy, cell) = (-2.5_f32, 7.5_f32, 6.0_f32, 0.25_f32);
+    let rader = (0..((x1 - x0) / cell) as usize)
+        .map(|r| {
+            let x = x1 - (r as f32 + 0.5) * cell;
+            (0..((2.0 * hy) / cell) as usize)
+                .map(|k| {
+                    let y = hy - (k as f32 + 0.5) * cell;
+                    let i_roboten = x > -bak && x < fram_kant && y.abs() < hw;
+                    if (x - lx).hypot(y - ly) < lr {
+                        '#'
+                    } else if !i_roboten && x > 0.0 && y.abs() < x * 1.2 + 1.0 {
+                        '.'
+                    } else {
+                        ' '
+                    }
+                })
+                .collect()
+        })
+        .collect();
+    let fram = lx - lr - fram_kant;
+    s.lidar_vy = Some(relay_protocol::LidarVy { cell, x0, x1, y: hy, robot: [fram_kant, bak, hw], fram: Some(fram), rader });
+    let gas = ((fram - 1.0) / 3.0).clamp(0.0, 1.0);
+    s.lidar_gas = Some(gas);
+    s.lidar_text = if fram <= 1.0 {
+        Some(format!("något {:.1} m framför roboten", fram).replace('.', ","))
+    } else if gas < 1.0 {
+        Some(format!("något {:.1} m framför roboten", fram).replace('.', ","))
+    } else {
+        None
+    };
 }
