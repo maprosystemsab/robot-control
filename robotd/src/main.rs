@@ -28,7 +28,7 @@ use watchdog::{Watchdog, WatchdogState};
 
 const CONFIG_PATH: &str = "/etc/robotd/config.json";
 /// Gräsläget: filen som lidarenheten (autorobot) tittar efter, se lidar::detect::gras_aktivt.
-const GRAS_FIL: &str = "/tmp/lidar_gras_robotstyrning";
+const GRAS_FIL: &str = "/run/lidar_gras_robotstyrning";
 
 #[tokio::main]
 async fn main() {
