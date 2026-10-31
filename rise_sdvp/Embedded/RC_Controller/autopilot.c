@@ -84,6 +84,20 @@ static bool m_en_angle_dist_comp; // Enable angle-distance compensation for stee
 static float m_sida_i = 0.0;
 static systime_t m_sida_t = 0;
 #endif
+// Förutseende (30.24): autopiloten räknar på var fordonet är om m_forutse_s sekunder
+// (rakt fram i nuvarande fart och kurs) i stället för var det är nu. Styrningen hinner
+// inte med direkt (hydraulventil, långsam styrmotor), så utan förutseende svänger
+// fordonet förbi linjen, korrigerar tillbaka för sent och vinglar. Med förutseende
+// börjar det räta upp innan det når linjen. Simulerat (pure pursuit, ventil 15°/s och
+// 0,2 s dödtid, Base Rad 2 m, 5 km/h, 0,5 m från linjen): översväng 17 cm utan, 1,5 cm
+// med 0,8 s. Kräver ändå ett tittavstånd (Base Rad) som är tillräckligt långt för
+// styrningens fart. Ställs i terminalen: ap_forutse SEKUNDER (bara i RAM).
+#if defined(IS_MACTRAC)
+#define AP_FORUTSE_STANDARD		0.5
+#else
+#define AP_FORUTSE_STANDARD		0.0
+#endif
+static float m_forutse_s = AP_FORUTSE_STANDARD;
 static int m_route_look_ahead; // Number of points to look ahead along the route
 static int m_route_left; // Number of points remaining in the route
 static bool m_route_end; // Flag indicating if end of route has been reached
@@ -113,6 +127,7 @@ static void terminal_print_closest(int argc, const char **argv); // Terminal com
 static void terminal_dynamic_rad(int argc, const char **argv); // Terminal command: enable/disable dynamic radius
 static void terminal_angle_dist_comp(int argc, const char **argv); // Terminal command: enable/disable angle-distance compensation
 static void terminal_look_ahead(int argc, const char **argv); // Terminal command: set look-ahead distance
+static void terminal_forutse(int argc, const char **argv); // Terminal: förutseende (s)
 static void reset_state(void); // Reset autopilot state variables (internal)
 
 // Initialize the autopilot module
@@ -198,6 +213,13 @@ void autopilot_init(void) {
 			"Set the look-ahead distance along the route in points",
 			"[points]",
 			terminal_look_ahead);
+
+	terminal_register_command_callback(
+			"ap_forutse",
+			"Forutseende: autopiloten raknar pa var fordonet ar om X sekunder (0-2),\n"
+			"  mot vingel nar styrningen ar seg. Utan argument: visa. Bara i RAM.",
+			"[sekunder]",
+			terminal_forutse);
 
 	// Start the autopilot thread with normal priority
 	chThdCreateStatic(ap_thread_wa, sizeof(ap_thread_wa),
@@ -690,6 +712,18 @@ static THD_FUNCTION(ap_thread, arg) {
 				break;
             }
 
+			// Förutseende: räkna på var fordonet är om m_forutse_s sekunder. Slutet på
+			// rutten räknas fortfarande från där fordonet är (verklig_pos).
+			ROUTE_POINT verklig_pos;
+			verklig_pos.px = pos_now.px;
+			verklig_pos.py = pos_now.py;
+			if (m_forutse_s > 0.0f) {
+				const float fram = pos_now.speed * m_forutse_s;
+				const float yaw_rad = -pos_now.yaw * M_PI / 180.0;
+				pos_now.px += fram * cosf(yaw_rad);
+				pos_now.py += fram * sinf(yaw_rad);
+			}
+
 #if HAS_HYDRAULIC_DRIVE
             // Hydraulic move according to attributes
             // NOTE: currently, only one valve can be actuated at a time using attributes
@@ -993,7 +1027,7 @@ static THD_FUNCTION(ap_thread, arg) {
 
 			// Check if the end of route is reached
 			if (!main_config.ap_repeat_routes && m_route_left < 3 &&
-					utils_rp_distance(&m_route[last_point_ind], &vehicle_pos) < m_rad_now) {
+					utils_rp_distance(&m_route[last_point_ind], &verklig_pos) < m_rad_now) {
 				m_route_end = true;
 			} else {
 				m_route_end = false;
@@ -1300,4 +1334,17 @@ static void terminal_look_ahead(int argc, const char **argv) {
 	} else {
 		commands_printf("Wrong number of arguments\n");
 	}
+}
+
+static void terminal_forutse(int argc, const char **argv) {
+	if (argc == 2) {
+		float x = -1.0f;
+		if (sscanf(argv[1], "%f", &x) == 1 && x >= 0.0f && x <= 2.0f) {
+			m_forutse_s = x;
+		} else {
+			commands_printf("Ogiltigt: ange 0-2 sekunder\n");
+			return;
+		}
+	}
+	commands_printf("Forutseende: %.2f s (standard %.2f s)\n", (double)m_forutse_s, (double)AP_FORUTSE_STANDARD);
 }
