@@ -2,7 +2,7 @@
 """Måttskiss för RobAnt mk1 ovanifrån (A4 liggande), att skriva ut och rita in GPS-antennerna
 och lidarn på. Roboten ritas som i RControlStation (mapwidget.cpp paintRobAnt), i skala.
 
-  python3 manualer/gor_robant_matt.py [utmapp]      (standard: ~/Hämtningar/Mapro Manualer)
+  python3 manualer/gor_robant_matt.py [utmapp]      (standard: ~/Robotstyrning/manualer/Mapro Manualer, annars ~/Hämtningar/Mapro Manualer)
 """
 
 import os
@@ -16,8 +16,9 @@ from reportlab.pdfgen import canvas
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import pdfstil  # noqa: E402,F401  (registrerar typsnitten)
 from pdfstil import ACCENT, GREY  # noqa: E402
+from pdfstil import standard_utmapp  # noqa: E402
 
-UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
+UT = sys.argv[1] if len(sys.argv) > 1 else standard_utmapp()
 
 # Mått mk1 (mm), som i RControlStation: x framåt, y vänster, origo = framaxelns mitt.
 AXEL = 1420.0           # axelavstånd

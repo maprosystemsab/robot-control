@@ -796,8 +796,15 @@ impl App {
     }
 }
 
-/// Mappen där hämtade körloggar sparas: Hämtningar/Robotstyrning-körloggar.
+/// Mappen där hämtade körloggar sparas: Hämtningar/Robotstyrning-körloggar, eller på
+/// kontorsdatorn (som har projektmappen ~/Robotstyrning, sedan 2026-10-31)
+/// ~/Robotstyrning/blandade projektfiler/korloggar.
 fn drive_log_dir() -> Option<std::path::PathBuf> {
+    if let Some(home) = directories::BaseDirs::new().map(|b| b.home_dir().join("Robotstyrning").join("blandade projektfiler")) {
+        if home.is_dir() {
+            return Some(home.join("korloggar"));
+        }
+    }
     let base = directories::UserDirs::new()
         .and_then(|u| u.download_dir().map(|d| d.to_path_buf()))
         .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()))?;

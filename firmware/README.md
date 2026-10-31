@@ -1,7 +1,7 @@
 # Firmware-patchar för CarController (rise_sdvp / RC_Controller)
 
 Patcharna ändrar **inte** din firmware-mapp av sig själva. De är skrivna mot
-`~/RControllStation/rise_sdvp/Embedded/RC_Controller` och kompilerades i en kopia
+`~/RControlStation/program/rise_sdvp/Embedded/RC_Controller` och kompilerades i en kopia
 2026-09-21 (`make`, arm-none-eabi-gcc → `rc_controller.bin`, inga varningar från
 den tillagda koden). **Ingen har flashats på riktiga kortet.**
 
@@ -21,9 +21,9 @@ App Settings → General → CAN status message mode), annars hör kortet inget.
 ### Använda
 
 ```bash
-cd ~/RControllStation/rise_sdvp
-patch -p1 --dry-run < ~/Hämtningar/robot-control/firmware/0001-cmd-get-vesc-status.patch   # testa först
-patch -p1 < ~/Hämtningar/robot-control/firmware/0001-cmd-get-vesc-status.patch
+cd ~/RControlStation/program/rise_sdvp
+patch -p1 --dry-run < ~/Robotstyrning/program/robot-control/firmware/0001-cmd-get-vesc-status.patch   # testa först
+patch -p1 < ~/Robotstyrning/program/robot-control/firmware/0001-cmd-get-vesc-status.patch
 cd Embedded/RC_Controller && make          # bygg
 # flasha med ert vanliga flöde (flash_styrkort.sh) när det passar
 ```

@@ -72,7 +72,7 @@ for l in "$(command -v RControlStation 2>/dev/null)" /usr/local/bin/RControlStat
 done
 # 2. Vanliga platser, och annars en rise_sdvp-klon någonstans i hemmappen.
 if [ -z "$RCS_REPO" ]; then
-  for c in "$HOME/rise_sdvp" "$HOME/RControllStation/rise_sdvp" "$HOME/RControlStation/rise_sdvp" \
+  for c in "$HOME/rise_sdvp" "$HOME/RControlStation/program/rise_sdvp" "$HOME/RControllStation/rise_sdvp" "$HOME/RControlStation/rise_sdvp" \
            $(find "$HOME" -maxdepth 6 -type d -path "*/Linux/RControlStation" -not -path "*/.*" 2>/dev/null | sed 's|/Linux/RControlStation$||'); do
     if [ -d "$c/Linux/RControlStation" ] && [ -d "$c/.git" ]; then RCS_REPO="$c"; break; fi
   done

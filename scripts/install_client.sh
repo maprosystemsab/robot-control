@@ -14,7 +14,7 @@
 #   5. Programmenyn: "Robotstyrning"
 #
 # Säkert att köra igen efter git pull; då byggs den nya versionen och
-# genvägarna pekar redan rätt. Se installationsguide.md.
+# genvägarna pekar redan rätt. Se dokument/installationsguide.md.
 
 set -euo pipefail
 

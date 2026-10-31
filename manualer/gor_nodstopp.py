@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Bygger installationsguiden för nödstoppsknappen (NC-brytare på Pi:ns GPIO27) som PDF.
 
-  python3 manualer/gor_nodstopp.py [utmapp]      (standard: ~/Hämtningar/Mapro Manualer)
+  python3 manualer/gor_nodstopp.py [utmapp]      (standard: ~/Robotstyrning/manualer/Mapro Manualer, annars ~/Hämtningar/Mapro Manualer)
 """
 
 import os
@@ -12,8 +12,9 @@ from reportlab.lib import colors
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdfstil import ACCENT, BREDD, GREY, WARN, bygg, h1, h2, p, punkter, tabell, tips, varning  # noqa: E402
+from pdfstil import standard_utmapp  # noqa: E402
 
-UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
+UT = sys.argv[1] if len(sys.argv) > 1 else standard_utmapp()
 
 BLA = colors.HexColor("#1f5fa8")
 

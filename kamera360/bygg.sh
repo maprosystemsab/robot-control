@@ -4,7 +4,8 @@
 #   bash kamera360/bygg.sh [SDK-KATALOG]
 #
 # SDK-KATALOG är den uppackade CameraSDK-katalogen (med include/ och lib/).
-# Standard: väljer x86_64- eller aarch64-varianten under ~/Hämtningar/insta360-sdk.
+# Standard: väljer x86_64- eller aarch64-varianten under ~/Robotstyrning/program/insta360-sdk
+# (eller ~/Hämtningar/insta360-sdk).
 # SDK:t är Insta360:s (licensierat) och ligger INTE i repot.
 #
 # Installerar:
@@ -16,10 +17,12 @@ set -euo pipefail
 HAR="$(cd "$(dirname "$0")" && pwd)"
 SDK="${1:-}"
 if [[ -z "$SDK" ]]; then
-    case "$(uname -m)" in
-        x86_64)  SDK=$(ls -d ~/Hämtningar/insta360-sdk/x86/CameraSDK-* 2>/dev/null | head -1) ;;
-        aarch64) SDK=$(ls -d ~/Hämtningar/insta360-sdk/arm/CameraSDK-* 2>/dev/null | head -1) ;;
-    esac
+    case "$(uname -m)" in x86_64) ARK=x86 ;; aarch64) ARK=arm ;; *) ARK="" ;; esac
+    # Kontorsdatorn: ~/Robotstyrning/program/insta360-sdk (sedan 2026-10-31), förut ~/Hämtningar.
+    for d in ~/Robotstyrning/program/insta360-sdk ~/Hämtningar/insta360-sdk; do
+        [[ -n "$ARK" ]] && SDK=$(ls -d "$d/$ARK"/CameraSDK-* 2>/dev/null | head -1)
+        [[ -n "$SDK" ]] && break
+    done
 fi
 if [[ -z "$SDK" || ! -f "$SDK/lib/libCameraSDK.so" ]]; then
     echo "Hittar inte Camera SDK (ange katalogen med include/ och lib/ som argument)." >&2

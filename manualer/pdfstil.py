@@ -5,6 +5,15 @@ bild(), tips(), varning(), kod(). Fetstil i text: <b>...</b>, kursiv: <i>...</i>
 """
 
 import os
+
+
+def standard_utmapp():
+    """Där PDF:erna hamnar: ~/Robotstyrning/manualer/Mapro Manualer på kontorsdatorn
+    (sedan 2026-10-31), annars ~/Hämtningar/Mapro Manualer."""
+    ny = os.path.expanduser("~/Robotstyrning/manualer/Mapro Manualer")
+    if os.path.isdir(os.path.dirname(ny)):
+        return ny
+    return os.path.expanduser("~/Hämtningar/Mapro Manualer")
 from datetime import date
 
 from reportlab.lib import colors

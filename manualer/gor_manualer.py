@@ -6,7 +6,7 @@
   3. Uppdatera datorn (scripts/uppdatera_dator.sh)
   4. Uppdatera roboten (scripts/uppdatera.sh)
 
-  python3 manualer/gor_manualer.py [utmapp]      (standard: ~/Hämtningar/Mapro Manualer)
+  python3 manualer/gor_manualer.py [utmapp]      (standard: ~/Robotstyrning/manualer/Mapro Manualer, annars ~/Hämtningar/Mapro Manualer)
 
 Skärmbilderna ligger i manualer/bilder/. Kräver python3-reportlab och DejaVu-typsnitt.
 """
@@ -16,8 +16,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdfstil import bild, bygg, h1, h2, h3, kod, p, punkter, sidbryt, tabell, tips, varning  # noqa: E402
+from pdfstil import standard_utmapp  # noqa: E402
 
-UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
+UT = sys.argv[1] if len(sys.argv) > 1 else standard_utmapp()
 
 
 # ---------------------------------------------------------------------------

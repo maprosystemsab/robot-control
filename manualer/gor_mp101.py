@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Bygger kopplingsguiden för Upwis MP101/ROV_MCU-kortet (var givare, CAN och antenner ska in).
 
-  python3 manualer/gor_mp101.py [utmapp]      (standard: ~/Hämtningar/Mapro Manualer)
+  python3 manualer/gor_mp101.py [utmapp]      (standard: ~/Robotstyrning/manualer/Mapro Manualer, annars ~/Hämtningar/Mapro Manualer)
 
 Kortbilden ritas från Upwis placeringsritning (MP101_323_TOP_CAM output.pdf), som är
 konfidentiell och därför inte ligger i git. Sökväg: MP101_UNDERLAG eller
-~/Hämtningar/mp101-underlag.
+~/Robotstyrning/manualer/mp101-underlag (förut ~/Hämtningar/mp101-underlag).
 """
 
 import os
@@ -17,10 +17,13 @@ from PIL import Image, ImageDraw, ImageFont
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdfstil import bygg, h1, h2, p, punkter, tabell, tips, varning  # noqa: E402
+from pdfstil import standard_utmapp  # noqa: E402
 import pdfstil  # noqa: E402
 
-UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
-UNDERLAG = os.environ.get("MP101_UNDERLAG", os.path.expanduser("~/Hämtningar/mp101-underlag"))
+UT = sys.argv[1] if len(sys.argv) > 1 else standard_utmapp()
+UNDERLAG = os.environ.get("MP101_UNDERLAG") or next(
+    (d for d in map(os.path.expanduser, ("~/Robotstyrning/manualer/mp101-underlag", "~/Hämtningar/mp101-underlag"))
+     if os.path.isdir(d)), os.path.expanduser("~/Robotstyrning/manualer/mp101-underlag"))
 RITNING = os.path.join(UNDERLAG, "MP101_323_TOP_CAM output.pdf")
 
 GRON = (29, 111, 66)

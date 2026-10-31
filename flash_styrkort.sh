@@ -82,7 +82,8 @@ hitta_fw_dir() {
     "$DIR/rise_sdvp/Embedded/RC_Controller" \
     "$DIR/../rise_sdvp/Embedded/RC_Controller" \
     "$hem/RControllStation/rise_sdvp/Embedded/RC_Controller" \
-    "$hem/RControlStation/rise_sdvp/Embedded/RC_Controller"; do
+    "$hem/RControlStation/rise_sdvp/Embedded/RC_Controller" \
+    "$hem/RControlStation/program/rise_sdvp/Embedded/RC_Controller"; do
     if [ -n "$c" ] && [ -f "$c/Makefile" ] && [ -f "$c/commands.c" ]; then
       ( cd "$c" && pwd )
       return 0

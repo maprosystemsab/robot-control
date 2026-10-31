@@ -8,7 +8,7 @@
 #
 #   bash scripts/ny_robot.sh
 #
-# Förutsättning: Raspberry Pi OS med SSH påslaget. Se installationsguide.md.
+# Förutsättning: Raspberry Pi OS med SSH påslaget. Se dokument/installationsguide.md.
 # Går att köra om; befintlig config skrivs bara över om du svarar ja (den
 # gamla sparas som .bak).
 #

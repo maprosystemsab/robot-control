@@ -3,7 +3,7 @@
 vinkelgivaren (DIS QR30N-360) på styrkortets TX- och RX-kontakter.
 Innehållet kommer från Kopplingsschema_givare.html (2026-09-24).
 
-  python3 manualer/gor_givare.py [utmapp]      (standard: ~/Hämtningar/Mapro Manualer)
+  python3 manualer/gor_givare.py [utmapp]      (standard: ~/Robotstyrning/manualer/Mapro Manualer, annars ~/Hämtningar/Mapro Manualer)
 """
 
 import math
@@ -15,8 +15,9 @@ from reportlab.lib import colors
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdfstil import BREDD, bild, bygg, h1, h2, p, punkter, tabell, tips, varning  # noqa: E402
+from pdfstil import standard_utmapp  # noqa: E402
 
-UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
+UT = sys.argv[1] if len(sys.argv) > 1 else standard_utmapp()
 
 INK = colors.HexColor("#1B2220")
 MUTED = colors.HexColor("#5A6661")

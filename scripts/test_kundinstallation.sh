@@ -1,7 +1,7 @@
 #!/bin/bash
 # test_kundinstallation.sh — körs på DATORN. Provinstallerar som en ny kund i en
 # tom Ubuntu-behållare (Podman): git clone från GitHub, install_client.sh och
-# install_dator.sh, som installationsguide_kund.md steg 2, 4 och 8. Datorn
+# install_dator.sh, som dokument/installationsguide_kund.md steg 2, 4 och 8. Datorn
 # påverkas inte; behållaren tas bort efteråt.
 #
 #   sudo apt install -y podman        # en gång
@@ -29,7 +29,7 @@ fi
 exit 0
 # ---- körs i behållaren ----
 # Kör i en tom Ubuntu-behållare (som root). Gör som en ny kunddator:
-# en vanlig användare med sudo följer installationsguide_kund.md ord för ord.
+# en vanlig användare med sudo följer dokument/installationsguide_kund.md ord för ord.
 set -u
 export DEBIAN_FRONTEND=noninteractive TZ=Europe/Stockholm
 

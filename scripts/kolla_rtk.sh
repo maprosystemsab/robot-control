@@ -1,5 +1,5 @@
 #!/bin/bash
-# Kollar en robots RTK mot verkstadens baspunkt (brunnslocket, se ~/Hämtningar/banor/BASPUNKT_VERKSTAD.txt).
+# Kollar en robots RTK mot verkstadens baspunkt (brunnslocket, se ~/RControlStation/blandade projektfiler/banor/BASPUNKT_VERKSTAD.txt).
 # Lägg robotens antenn mitt på lockets östra halva och kör:
 #   scripts/kolla_rtk.sh mapro@192.168.200.16 [sekunder]     (standard 60 s)
 # Läser bara GGA från rtkrcv (port 2948) på roboten; ändrar ingenting.

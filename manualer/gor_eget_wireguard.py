@@ -2,7 +2,7 @@
 """Bygger kundguiden "Eget WireGuard" som PDF: kundens egen tunnel mellan deras dator och
 deras robot, medan robotens tunnel till Mapro (wg0) ligger kvar för support.
 
-  python3 manualer/gor_eget_wireguard.py [utmapp]     (standard: ~/Hämtningar/Mapro Manualer)
+  python3 manualer/gor_eget_wireguard.py [utmapp]     (standard: ~/Robotstyrning/manualer/Mapro Manualer, annars ~/Hämtningar/Mapro Manualer)
 """
 
 import os
@@ -10,8 +10,9 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pdfstil import bygg, h1, h2, kod, p, punkter, tabell, tips, varning  # noqa: E402
+from pdfstil import standard_utmapp  # noqa: E402
 
-UT = sys.argv[1] if len(sys.argv) > 1 else os.path.expanduser("~/Hämtningar/Mapro Manualer")
+UT = sys.argv[1] if len(sys.argv) > 1 else standard_utmapp()
 
 
 def guide():
