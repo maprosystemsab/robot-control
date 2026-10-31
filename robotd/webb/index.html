@@ -13,13 +13,6 @@
     font: 15px/1.35 -apple-system, system-ui, sans-serif; overflow: hidden;
     -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
   #bild { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: contain; }
-  #sfar { position: fixed; inset: 0; width: 100%; height: 100%; display: none; }
-  .bara360 { display: none; }
-  body.kamera360 .bara360 { display: block; }
-  #tittaplatta { position: fixed; left: 50%; transform: translateX(-50%); bottom: max(10px, env(safe-area-inset-bottom));
-    width: 30%; min-width: 150px; height: 46px; border-radius: 23px; background: rgba(0,0,0,.45);
-    border: 2px solid rgba(255,255,255,.35); color: rgba(255,255,255,.8); font-size: 14px;
-    line-height: 42px; text-align: center; touch-action: none; z-index: 1; }
   #yta { position: fixed; inset: 0; touch-action: none; }
   #status { position: fixed; left: max(8px, env(safe-area-inset-left)); top: max(8px, env(safe-area-inset-top));
     background: var(--panel); border-radius: 10px; padding: 5px 9px; font-size: 13px;
@@ -58,9 +51,7 @@
 </head>
 <body>
 <canvas id="bild"></canvas>
-<canvas id="sfar"></canvas>
 <canvas id="yta"></canvas>
-<div id="tittaplatta" class="bara360">◀ titta runt ▶</div>
 <div id="status"></div>
 <div id="knappar">
   <button id="aktivera">AKTIVERA</button>
@@ -71,8 +62,6 @@
 <div id="installningar">
   <button id="ljus">Ljus</button>
   <div class="rad"><button id="maxned">−</button><div id="maxtxt"></div><button id="maxupp">+</button></div>
-  <button id="titta" class="bara360">Titta framåt</button>
-  <button id="framhit" class="bara360">Fram = hit</button>
 </div>
 <div id="meddelande">Ansluter…</div>
 <script>
@@ -105,115 +94,6 @@ const s = {
 function clampMax(v) { return Math.min(1, Math.max(MAX_MIN, Math.round(v * 100) / 100)); }
 function visa(t) { meddelande.textContent = t || ""; }
 
-// ---------- 360-kamera (Insta360: två fisheye-bilder sida vid sida) ----------
-// robotd skickar {"projektion":"dubbel_fisheye"} först på /video. Bilden sys ihop i
-// WebGL: varje bildpunkt på skärmen får en riktning som slås upp i främre eller
-// bakre linsen. Linsdata från kamerans kalibrering (X4 Air, 2026-10-21) i enheter
-// av bildhöjden: mitt x, mitt y, radie. FOV provad fram på en stillbild.
-const LINS_FRAM = [0.4992, 0.4898, 0.5014], LINS_BAK = [1.5041, 0.4898, 0.4987], LINS_FOV = 200;
-const TAN_X = 0.9; // halva synfältet i telefonen (≈84° brett, som färdlinjernas kamera)
-const v360 = { pa: false, yaw: 0, pitch: 0, drag: null, gl: null,
-  fram: (() => { try { return parseFloat(localStorage.getItem("fram360")) || 0; } catch (_) { return 0; } })() };
-function sparaFram() { try { localStorage.setItem("fram360", String(v360.fram)); } catch (_) {} }
-function satt360(pa) {
-  v360.pa = pa; document.body.classList.toggle("kamera360", pa);
-  $("sfar").style.display = pa ? "block" : "none"; bild.style.display = pa ? "none" : "block";
-}
-// Ritar sfären i gl (helskärm). invPV: klipprum -> riktning (bara vridning).
-function skapaSfar(gl) {
-  const sh = (typ, src) => { const o = gl.createShader(typ); gl.shaderSource(o, src); gl.compileShader(o); return o; };
-  const prog = gl.createProgram();
-  gl.attachShader(prog, sh(gl.VERTEX_SHADER, `#version 300 es
-    in vec2 p; out vec2 c; void main() { c = p; gl_Position = vec4(p, 0.0, 1.0); }`));
-  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, `#version 300 es
-    precision highp float; in vec2 c; uniform sampler2D t; uniform mat4 invPV; uniform float fram;
-    uniform vec3 lf; uniform vec3 lb; uniform float halv; out vec4 o;
-    vec2 lins(vec3 d, vec3 l) { // d i linsens system, linsen tittar längs +z
-      float th = acos(clamp(d.z, -1.0, 1.0)), ph = atan(d.y, d.x);
-      vec2 px = l.xy + l.z * th / halv * vec2(cos(ph), -sin(ph));
-      return vec2(px.x / 2.0, px.y);
-    }
-    void main() {
-      vec4 a = invPV * vec4(c, 1.0, 1.0); vec3 w = normalize(a.xyz / a.w);
-      float cs = cos(fram), sn = sin(fram);
-      vec3 d = vec3(cs * w.x + sn * w.z, w.y, sn * w.x - cs * w.z); // x höger, y upp, z fram
-      vec4 f = texture(t, lins(d, lf)), b = texture(t, lins(vec3(-d.x, d.y, -d.z), lb));
-      o = mix(b, f, smoothstep(-0.09, 0.09, d.z));
-    }`));
-  gl.linkProgram(prog);
-  const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-  const u = (n) => gl.getUniformLocation(prog, n);
-  return {
-    ny: true,
-    rita(invPV) { // anropas per vy; texturen laddas om bara när en ny bild kommit
-      gl.useProgram(prog); gl.disable(gl.BLEND); gl.bindTexture(gl.TEXTURE_2D, tex);
-      if (this.ny && bild.width > 1) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bild); this.ny = false; }
-      gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-      const loc = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(loc);
-      gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-      gl.uniformMatrix4fv(u("invPV"), false, invPV); gl.uniform1f(u("fram"), v360.fram);
-      gl.uniform3fv(u("lf"), LINS_FRAM); gl.uniform3fv(u("lb"), LINS_BAK);
-      gl.uniform1f(u("halv"), LINS_FOV / 2 * Math.PI / 180);
-      gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
-    },
-  };
-}
-// Telefonens vy: perspektiv TAN_X brett, vriden yaw (runt lodlinjen) och pitch.
-function telefonInvPV() {
-  const W = innerWidth, H = innerHeight, tx = TAN_X, ty = TAN_X * H / W;
-  const invP = new Float32Array([tx, 0, 0, 0, 0, ty, 0, 0, 0, 0, -1, 0, 0, 0, 0, 1]); // (x,y,1,1) -> (tx·x, ty·y, -1, 1)
-  const cy = Math.cos(v360.yaw), sy = Math.sin(v360.yaw), cp = Math.cos(v360.pitch), sp = Math.sin(v360.pitch);
-  const ry = new Float32Array([cy, 0, -sy, 0, 0, 1, 0, 0, sy, 0, cy, 0, 0, 0, 0, 1]);
-  const rx = new Float32Array([1, 0, 0, 0, 0, cp, sp, 0, 0, -sp, cp, 0, 0, 0, 0, 1]);
-  return mul4(mul4(ry, rx), invP);
-}
-function ritaTelefon360() {
-  const c = $("sfar");
-  if (!v360.gl) { const gl = c.getContext("webgl2"); if (!gl) { visa("Webbläsaren saknar WebGL2 – 360-bilden går inte att visa"); return; } v360.gl = { gl, sfar: skapaSfar(gl) }; }
-  const dpr = window.devicePixelRatio || 1, W = Math.round(innerWidth * dpr), H = Math.round(innerHeight * dpr);
-  if (c.width !== W || c.height !== H) { c.width = W; c.height = H; }
-  const { gl, sfar } = v360.gl;
-  gl.viewport(0, 0, W, H);
-  sfar.rita(telefonInvPV());
-}
-$("titta").addEventListener("click", () => { v360.yaw = 0; v360.pitch = 0; });
-// Dra för att titta: ett helt skärmsvep = hela synfältet. Flera fingrar på
-// plattan räknas inte, bara det första.
-function tittaStart(el, e) {
-  if (v360.drag) return;
-  el.setPointerCapture(e.pointerId);
-  v360.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, yaw: v360.yaw, pitch: v360.pitch };
-}
-function tittaFlytt(e) {
-  const dr = v360.drag; if (!dr || dr.id !== e.pointerId) return false;
-  const k = 2 * Math.atan(TAN_X) / innerWidth;
-  v360.yaw = dr.yaw + (e.clientX - dr.x) * k;
-  v360.pitch = Math.max(-1.4, Math.min(1.4, dr.pitch + (e.clientY - dr.y) * k));
-  return true;
-}
-function tittaSlut(e) { if (v360.drag && v360.drag.id === e.pointerId) v360.drag = null; }
-const tittaplatta = $("tittaplatta");
-tittaplatta.addEventListener("pointerdown", (e) => { tittaStart(tittaplatta, e); e.preventDefault(); });
-tittaplatta.addEventListener("pointermove", tittaFlytt);
-for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) tittaplatta.addEventListener(ev, tittaSlut);
-tittaplatta.addEventListener("dblclick", () => { v360.yaw = 0; v360.pitch = 0; });
-addEventListener("keydown", (e) => { // piltangenterna vrider 360-vyn 10° per tryck
-  if (!v360.pa) return;
-  const steg = 10 * Math.PI / 180;
-  if (e.key === "ArrowLeft") v360.yaw += steg; else if (e.key === "ArrowRight") v360.yaw -= steg;
-  else if (e.key === "ArrowUp") v360.pitch = Math.min(1.4, v360.pitch + steg);
-  else if (e.key === "ArrowDown") v360.pitch = Math.max(-1.4, v360.pitch - steg);
-  else return;
-  e.preventDefault();
-});
-$("framhit").addEventListener("click", () => { v360.fram += v360.yaw; v360.yaw = 0; v360.pitch = 0; sparaFram(); });
-
 // ---------- Joystickar (flera fingrar via Pointer Events) ----------
 const sticks = new Map(); // pointerId -> { sida, x0, y0, x, y }
 function storlek() {
@@ -236,7 +116,6 @@ function uppdateraSpakar() {
 }
 yta.addEventListener("pointerdown", (e) => {
   $("installningar").classList.remove("oppen");
-  // 360: titta runt gör man bara på plattan nere i mitten; resten är spakar som förut.
   const sida = e.clientX < innerWidth / 2 ? "v" : "h";
   for (const p of sticks.values()) if (p.sida === sida) return; // en tumme per sida
   yta.setPointerCapture(e.pointerId);
@@ -244,28 +123,16 @@ yta.addEventListener("pointerdown", (e) => {
   s.senastTryck = Date.now(); keepAwake();
 });
 yta.addEventListener("pointermove", (e) => {
-  if (tittaFlytt(e)) return;
   const p = sticks.get(e.pointerId); if (!p) return;
   p.x = e.clientX; p.y = e.clientY; uppdateraSpakar();
 });
-function slapp(e) {
-  tittaSlut(e);
-  if (sticks.delete(e.pointerId)) uppdateraSpakar();
-}
+function slapp(e) { if (sticks.delete(e.pointerId)) uppdateraSpakar(); }
 yta.addEventListener("pointerup", slapp);
 yta.addEventListener("pointercancel", slapp);
 yta.addEventListener("lostpointercapture", slapp);
 
 function ritaSpakar() {
   yctx.clearRect(0, 0, innerWidth, innerHeight);
-  if (v360.pa && !xr.session) {
-    ritaTelefon360();
-    // Linjerna gäller bara framåt; vänd dem bort när man tittar åt annat håll.
-    if (s.pivot && s.aktiv) ritaVand(yctx, innerWidth, innerHeight, s.styr);
-    else if (Math.abs(v360.yaw) < 0.25 && Math.abs(v360.pitch) < 0.25) {
-      const d = styrGrader(s.status); if (d != null) ritaLinjer(yctx, innerWidth, innerHeight, d);
-    }
-  }
   for (const p of sticks.values()) {
     const dx = p.sida === "h" ? Math.max(-STICK_R, Math.min(STICK_R, p.x - p.x0)) : 0;
     const dy = p.sida === "v" ? Math.max(-STICK_R, Math.min(STICK_R, p.y - p.y0)) : 0;
@@ -487,10 +354,6 @@ async function nyDekoder(codec) {
         bild.width = frame.displayWidth; bild.height = frame.displayHeight;
       }
       bctx.drawImage(frame, 0, 0); frame.close(); bilder++;
-      if (v360.pa) { // rå fisheye-bild; linjer och status ritas ovanpå sfären istället
-        if (v360.gl) v360.gl.sfar.ny = true;
-        xr.nyBild = true; return;
-      }
       const W = bild.width, H = bild.height;
       if (s.pivot && s.aktiv) ritaVand(bctx, W, H, s.styr);
       else {
@@ -522,11 +385,8 @@ async function vidBild(buf) {
 function anslutVideo() {
   const v = new WebSocket("wss://" + location.host + "/video");
   v.binaryType = "arraybuffer";
-  v.onmessage = (e) => {
-    if (typeof e.data !== "string") { vidBild(e.data); return; }
-    try { const m = JSON.parse(e.data); if (m.projektion) satt360(m.projektion === "dubbel_fisheye"); } catch (_) {}
-  };
-  v.onclose = () => { satt360(false); if (dekoder) { try { dekoder.close(); } catch (_) {} dekoder = null; } setTimeout(anslutVideo, 2000); };
+  v.onmessage = (e) => { if (typeof e.data !== "string") vidBild(e.data); };
+  v.onclose = () => { if (dekoder) { try { dekoder.close(); } catch (_) {} dekoder = null; } setTimeout(anslutVideo, 2000); };
 }
 if (!("VideoDecoder" in window)) visa("Den här webbläsaren kan inte visa video (kräver iOS 16.4 eller senare). Styrningen fungerar ändå.");
 
@@ -556,8 +416,7 @@ function ritaXrStatus(c, W, H) {
   if (!s.aktiv) {
     c.fillStyle = "rgba(0,0,0,.6)"; c.fillRect(0, H - h, W, h);
     c.fillStyle = "#fff"; c.font = `${Math.round(h * 0.45)}px sans-serif`;
-    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   tryck vänster spak = hämta skärmen   vänster grepp = dra skärmen"
-      + (v360.pa ? "   Y = fram dit du tittar" : ""), h * 0.4, H - h / 2);
+    c.fillText("A = aktivera   B = lås   höger grepp = VÄND   X = ljus   tryck vänster spak = hämta skärmen   vänster grepp = dra skärmen", h * 0.4, H - h / 2);
   }
 }
 
@@ -568,28 +427,6 @@ function xrKnapp(id, nedtryckt) { // sant precis när knappen trycks ner
 const mul4 = (a, b) => { const o = new Float32Array(16);
   for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) { let v = 0; for (let k = 0; k < 4; k++) v += a[k * 4 + j] * b[i * 4 + k]; o[i * 4 + j] = v; }
   return o; };
-const inv4 = (m) => { // allmän 4x4-invers (kolumnordning)
-  const o = new Float32Array(16);
-  o[0] = m[5]*m[10]*m[15] - m[5]*m[11]*m[14] - m[9]*m[6]*m[15] + m[9]*m[7]*m[14] + m[13]*m[6]*m[11] - m[13]*m[7]*m[10];
-  o[4] = -m[4]*m[10]*m[15] + m[4]*m[11]*m[14] + m[8]*m[6]*m[15] - m[8]*m[7]*m[14] - m[12]*m[6]*m[11] + m[12]*m[7]*m[10];
-  o[8] = m[4]*m[9]*m[15] - m[4]*m[11]*m[13] - m[8]*m[5]*m[15] + m[8]*m[7]*m[13] + m[12]*m[5]*m[11] - m[12]*m[7]*m[9];
-  o[12] = -m[4]*m[9]*m[14] + m[4]*m[10]*m[13] + m[8]*m[5]*m[14] - m[8]*m[6]*m[13] - m[12]*m[5]*m[10] + m[12]*m[6]*m[9];
-  o[1] = -m[1]*m[10]*m[15] + m[1]*m[11]*m[14] + m[9]*m[2]*m[15] - m[9]*m[3]*m[14] - m[13]*m[2]*m[11] + m[13]*m[3]*m[10];
-  o[5] = m[0]*m[10]*m[15] - m[0]*m[11]*m[14] - m[8]*m[2]*m[15] + m[8]*m[3]*m[14] + m[12]*m[2]*m[11] - m[12]*m[3]*m[10];
-  o[9] = -m[0]*m[9]*m[15] + m[0]*m[11]*m[13] + m[8]*m[1]*m[15] - m[8]*m[3]*m[13] - m[12]*m[1]*m[11] + m[12]*m[3]*m[9];
-  o[13] = m[0]*m[9]*m[14] - m[0]*m[10]*m[13] - m[8]*m[1]*m[14] + m[8]*m[2]*m[13] + m[12]*m[1]*m[10] - m[12]*m[2]*m[9];
-  o[2] = m[1]*m[6]*m[15] - m[1]*m[7]*m[14] - m[5]*m[2]*m[15] + m[5]*m[3]*m[14] + m[13]*m[2]*m[7] - m[13]*m[3]*m[6];
-  o[6] = -m[0]*m[6]*m[15] + m[0]*m[7]*m[14] + m[4]*m[2]*m[15] - m[4]*m[3]*m[14] - m[12]*m[2]*m[7] + m[12]*m[3]*m[6];
-  o[10] = m[0]*m[5]*m[15] - m[0]*m[7]*m[13] - m[4]*m[1]*m[15] + m[4]*m[3]*m[13] + m[12]*m[1]*m[7] - m[12]*m[3]*m[5];
-  o[14] = -m[0]*m[5]*m[14] + m[0]*m[6]*m[13] + m[4]*m[1]*m[14] - m[4]*m[2]*m[13] - m[12]*m[1]*m[6] + m[12]*m[2]*m[5];
-  o[3] = -m[1]*m[6]*m[11] + m[1]*m[7]*m[10] + m[5]*m[2]*m[11] - m[5]*m[3]*m[10] - m[9]*m[2]*m[7] + m[9]*m[3]*m[6];
-  o[7] = m[0]*m[6]*m[11] - m[0]*m[7]*m[10] - m[4]*m[2]*m[11] + m[4]*m[3]*m[10] + m[8]*m[2]*m[7] - m[8]*m[3]*m[6];
-  o[11] = -m[0]*m[5]*m[11] + m[0]*m[7]*m[9] + m[4]*m[1]*m[11] - m[4]*m[3]*m[9] - m[8]*m[1]*m[7] + m[8]*m[3]*m[5];
-  o[15] = m[0]*m[5]*m[10] - m[0]*m[6]*m[9] - m[4]*m[1]*m[10] + m[4]*m[2]*m[9] + m[8]*m[1]*m[6] - m[8]*m[2]*m[5];
-  const det = m[0]*o[0] + m[1]*o[4] + m[2]*o[8] + m[3]*o[12];
-  for (let i = 0; i < 16; i++) o[i] /= det;
-  return o;
-};
 // Skärmen XR_AVSTAND framför huvudet, rak (bara vridning runt lodlinjen), vänd mot dig.
 function skarmFramfor(pose) {
   const m = pose.transform.matrix, pos = pose.transform.position;
@@ -603,11 +440,6 @@ function xrSkarm(frame, ref) {
     if (src.handedness !== "left" || !src.gamepad) continue;
     const kn = (i) => src.gamepad.buttons.length > i && src.gamepad.buttons[i].pressed;
     if (xrKnapp("Lspak", kn(3))) { const v = frame.getViewerPose(ref); if (v) xr.modell = skarmFramfor(v); }
-    // 360: Y = robotens fram läggs dit du tittar. (Inte på en spak: vänster spak är gasen.)
-    if (v360.pa && xrKnapp("Y", kn(5))) {
-      const v = frame.getViewerPose(ref);
-      if (v) { const m = v.transform.matrix; v360.fram = -Math.atan2(m[8], m[10]); sparaFram(); }
-    }
     const hand = src.gripSpace && frame.getPose(src.gripSpace, ref);
     if (kn(1) && hand) {
       // Håll grepp: skärmen följer handen med samma avstånd och vinkel som när greppet togs.
@@ -666,10 +498,6 @@ async function startaXr() {
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
-  // 360: sfären runt huvudet, och skärmen blir en genomskinlig panel med status och linjer.
-  const sfar = v360.pa ? skapaSfar(gl) : null;
-  const panel = document.createElement("canvas"); panel.width = 1600; panel.height = 900;
-  const pctx = panel.getContext("2d");
   xr.nyBild = true;
   xr.modell = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, -XR_AVSTAND, 1]);
   xr.greppOffset = null;
@@ -690,29 +518,10 @@ async function startaXr() {
     const pose = frame.getViewerPose(ref); if (!pose) return;
     const layer = session.renderState.baseLayer;
     gl.bindFramebuffer(gl.FRAMEBUFFER, layer.framebuffer);
-    gl.clearColor(0, 0, 0, lage === "immersive-ar" && !sfar ? 0 : 1); gl.clear(gl.COLOR_BUFFER_BIT);
-    if (sfar) {
-      for (const view of pose.views) {
-        const vp = layer.getViewport(view);
-        gl.viewport(vp.x, vp.y, vp.width, vp.height);
-        const v = new Float32Array(view.transform.inverse.matrix); v[12] = v[13] = v[14] = 0; // bara vridning
-        sfar.rita(inv4(mul4(view.projectionMatrix, v)));
-      }
-      gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    }
+    gl.clearColor(0, 0, 0, lage === "immersive-ar" ? 0 : 1); gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(prog); gl.bindTexture(gl.TEXTURE_2D, tex);
-    if (xr.nyBild && sfar) {
-      sfar.ny = true;
-      const W = panel.width, H = panel.height;
-      pctx.clearRect(0, 0, W, H);
-      if (s.pivot && s.aktiv) ritaVand(pctx, W, H, s.styr);
-      else { const d = styrGrader(s.status); ritaLinjer(pctx, W, H, d == null ? 0 : d, 2); }
-      ritaXrStatus(pctx, W, H);
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, panel); xr.nyBild = false;
-    }
     if (xr.nyBild && bild.width > 1) { gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, bild); xr.nyBild = false; }
-    const kalla = sfar ? panel : bild;
-    const bredd = XR_BREDD, hojd = kalla.width > 1 ? XR_BREDD * kalla.height / kalla.width : XR_BREDD * 9 / 16;
+    const bredd = XR_BREDD, hojd = bild.width > 1 ? XR_BREDD * bild.height / bild.width : XR_BREDD * 9 / 16;
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     const loc = gl.getAttribLocation(prog, "p"); gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);

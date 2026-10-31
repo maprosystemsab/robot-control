@@ -189,23 +189,6 @@ pub struct VideoConfig {
     /// Stereokamera (ZED 2): bilden har båda ögonen bredvid varandra, skicka
     /// bara vänstra halvan. `width` är då hela bredden (t.ex. 2560 för 2×1280).
     pub stereo_left_only: bool,
-    /// Var bilden kommer ifrån: `v4l2` (webbkamera, `device`) eller `insta360`
-    /// (360-kamera via `insta360-brygga`, kamera360/). Insta360 ger alltid
-    /// 1664×832 i 30 bilder/s på ~8–10 Mbit/s; bryggan kodar om till
-    /// `width`×`height`/`fps`/`bitrate_kbps` (x264 i mjukvara, `encoder`
-    /// används inte), eller skickar den orörd med `encoder: "copy"` (bara på
-    /// snabbt nät). `device` och `input_format` gäller inte.
-    pub source: String,
-    /// Kommandot som startar Insta360-bryggan (`source: "insta360"`).
-    pub insta360_command: String,
-}
-
-impl VideoConfig {
-    /// Bilden är två fisheye-bilder sida vid sida (360-kamera), som tittaren
-    /// syr ihop till en sfär.
-    pub fn is_360(&self) -> bool {
-        self.source == "insta360"
-    }
 }
 
 impl Default for VideoConfig {
@@ -221,8 +204,6 @@ impl Default for VideoConfig {
             encoder: "h264_v4l2m2m".to_string(),
             input_format: "mjpeg".to_string(),
             stereo_left_only: false,
-            source: "v4l2".to_string(),
-            insta360_command: "insta360-brygga".to_string(),
         }
     }
 }
