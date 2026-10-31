@@ -140,6 +140,10 @@ pub struct ControlCommand {
     /// vänder roboten på stället i stället för att styra. Gasen räknas inte.
     #[serde(default)]
     pub pivot: bool,
+    /// Gräsläget (knappen Gräs): lidarn räknar bara det som är högre än 1 m som hinder,
+    /// så att roboten kan köra genom högt gräs; Car_Client kör då sakta.
+    #[serde(default)]
+    pub gras: bool,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

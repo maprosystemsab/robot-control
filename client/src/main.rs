@@ -102,6 +102,9 @@ struct App {
     video_texture: Option<egui::TextureHandle>,
     /// Röd färdlinje i kamerabilden och bakhjulsvyn (knappen "Färdlinje").
     show_guide: bool,
+    /// Gräsläget (knappen "Gräs"): lidarn räknar bara det som är högre än 1 m som hinder
+    /// och Car_Client kör sakta. Sparas inte; av från start.
+    gras: bool,
     /// Lidarvyn i nedre vänstra hörnet: stor (klick växlar).
     lidar_stor: bool,
     /// Förarens Max (0..1) som i RControlStation, sparas mellan körningar.
@@ -137,6 +140,7 @@ impl App {
             video_port: 9001,
             video_texture: None,
             show_guide: true,
+            gras: false,
             lidar_stor: false,
             max_output: load_max_output(),
             logs_open: false,
@@ -334,6 +338,7 @@ impl App {
                 .unwrap_or(0),
             max_output: Some(self.max_output),
             pivot: self.activated && gp_state.pivot,
+            gras: self.gras,
         };
         let pivot_now = cmd.pivot;
         let pivot_dir = gp_state.steering;
@@ -511,6 +516,15 @@ impl App {
                                 save_max_output(self.max_output);
                             }
 
+                            let gras_text = egui::RichText::new("Gräs");
+                            let gras_text = if self.gras { gras_text.color(egui::Color32::BLACK).strong() } else { gras_text };
+                            if ui
+                                .add(egui::Button::new(gras_text).fill(if self.gras { egui::Color32::from_rgb(120, 200, 80) } else { ui.visuals().widgets.inactive.weak_bg_fill }))
+                                .on_hover_text("Gräsläge: kör genom högt gräs. Lidarn räknar bara det som är högre än 1 m som hinder (personer, fordon) och roboten kör sakta. Slå av när gräset är slut.")
+                                .clicked()
+                            {
+                                self.gras = !self.gras;
+                            }
                             if ui
                                 .selectable_label(self.show_guide, "Färdlinje")
                                 .on_hover_text("Röd linje i bilden som visar vart roboten är på väg, och hur bakhjulen står")

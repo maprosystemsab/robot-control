@@ -1100,6 +1100,9 @@ void CarClient::readPendingDatagrams()
         mUdpSocket->readDatagram(datagram.data(), datagram.size(),
                                 &mHostAddress, &senderPort);
 
+        if (grasPaket(datagram)) {
+            continue;
+        }
         hinderFilter(datagram);
         if (nodstoppSparrar(datagram)) {
             continue;
@@ -1232,6 +1235,9 @@ void CarClient::tcpRx(QByteArray &data)
 {
     qDebug() << "In CarClient::tcpRx";
     qDebug() << "data: " << data;
+    if (grasPaket(data)) {
+        return;
+    }
     hinderFilter(data);
     if (nodstoppSparrar(data)) {
         return;
@@ -1797,6 +1803,7 @@ void CarClient::hinderTick()
 
     QString sparr;       // all gas framåt spärrad
     double fram = -1.0;  // närmaste hinder framför fronten, -1 = inget
+    bool gras = false;   // gräsläget på i lidarenheten (sjätte fältet i /run/lidar)
     QFile f("/run/lidar");
     if (!f.open(QIODevice::ReadOnly)) {
         sparr = "lidarn svarar inte (ingen /run/lidar)";
@@ -1809,6 +1816,7 @@ void CarClient::hinderTick()
             if (d[0] != "-") {
                 fram = d[0].toDouble();
             }
+            gras = d.size() >= 6 && d[5].trimmed() == "1";
             if (d[3].toDouble() < MIN_SIKT) {
                 sparr = "lidarn ser inte fritt framför roboten";
             } else if (fram >= 0.0 && fram <= STOPP_M) {
@@ -1820,6 +1828,10 @@ void CarClient::hinderTick()
     mHinderFaktor = sparr.isEmpty() && fram >= 0.0
             ? qBound(0.0, (fram - STOPP_M) / (SAKTA_M - STOPP_M), 1.0)
             : (sparr.isEmpty() ? 1.0 : 0.0);
+    // Gräsläget: sakta (högst hälften av gasen framåt).
+    if (gras) {
+        mHinderFaktor = qMin(mHinderFaktor, GRAS_FAKTOR);
+    }
     const bool apStopp = !sparr.isEmpty() || (fram >= 0.0 && fram <= mHinderStoppM);
 
     static QElapsedTimer omsandning;
@@ -1904,6 +1916,30 @@ void CarClient::hinderTick()
         sf.close();
         ::rename("/tmp/lidarstopp_status.tmp", "/tmp/lidarstopp_status");
     }
+}
+
+// Gräsläget från RControlStation: [id][147][1] varje sekund medan knappen är intryckt.
+// Skrivs till en fil som lidarenheten tittar efter (färsk i 3 s), når inte kortet.
+bool CarClient::grasPaket(const QByteArray &data)
+{
+    if (data.size() < 3 || (quint8)data[1] != 147) {
+        return false;
+    }
+    if (data[2] != 0) {
+        QFile f("/tmp/lidar_gras_rcs");
+        if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+            f.write("1");
+            f.close();
+        }
+        if (!mGrasMeddelat) {
+            mGrasMeddelat = true;
+            hinderMeddela("Gräsläge PÅ: lidarn räknar bara det som är högre än 1 m som hinder, sakta fart");
+        }
+    } else {
+        QFile::remove("/tmp/lidar_gras_rcs");
+        mGrasMeddelat = false;
+    }
+    return true;
 }
 
 void CarClient::hinderFilter(QByteArray &data)

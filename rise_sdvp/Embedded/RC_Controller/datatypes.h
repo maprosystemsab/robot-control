@@ -250,6 +250,8 @@ typedef enum {
     // 144 och 145 är UPPTAGNA: MP101:s lägesknapp (lagesknapp_di.c, LAGESKNAPP=di2),
     // [id][144][läge] från kortet och [id][145][läge] till lampan.
     CMD_SET_EXT_YAW = 146,      // MP101: kurs från två antenner [yaw f32*1e6][noggrannhet f32*1e6], grader i kortets yaw
+    // 147 är UPPTAGET: gräsläget, [id][147][1] från RControlStation varje sekund, tas
+    // emot av Car_Client (skrivs till /tmp/lidar_gras_rcs för lidarenheten), når inte kortet.
     CMD_GET_VINKEL = 150,       // 30.12: vinkelgivaren (mV, grader, status) utan att nollställa säkerhetstiden
     CMD_SET_AUTOCENTRERING = 151, // 30.18: [på u8] autocentrering på/av, sparas i styrkortet
 

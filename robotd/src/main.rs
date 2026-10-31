@@ -27,6 +27,8 @@ use server::RobotRequest;
 use watchdog::{Watchdog, WatchdogState};
 
 const CONFIG_PATH: &str = "/etc/robotd/config.json";
+/// Gräsläget: filen som lidarenheten (autorobot) tittar efter, se lidar::detect::gras_aktivt.
+const GRAS_FIL: &str = "/tmp/lidar_gras_robotstyrning";
 
 #[tokio::main]
 async fn main() {
@@ -117,6 +119,8 @@ async fn main() {
     let mut target_steering = 0.0f32;
     // O hålls in på dosan: styrspaken vänder roboten på stället.
     let mut target_pivot = false;
+    let mut gras = false;
+    let mut gras_skrivet: Option<Instant> = None;
     // För körloggen: senaste kommandots AKTIVERA-flagga, antal kommandon sedan
     // förra loggraden och watchdog-läget, så att det syns vad som händer.
     let mut last_activated = false;
@@ -152,6 +156,17 @@ async fn main() {
                 let now = Instant::now();
                 let dt = now.duration_since(last_tick).as_secs_f32();
                 last_tick = now;
+
+                // Gräsläget: filen till lidarenheten varje sekund medan föraren har det på
+                // och kommandona kommer (Car_Client kör då sakta, se /run/lidar).
+                if gras && watchdog.state(now) == WatchdogState::Ok {
+                    if gras_skrivet.is_none_or(|t| now.duration_since(t) >= Duration::from_secs(1)) {
+                        let _ = std::fs::write(GRAS_FIL, "1");
+                        gras_skrivet = Some(now);
+                    }
+                } else if gras_skrivet.take().is_some() {
+                    let _ = std::fs::remove_file(GRAS_FIL);
+                }
 
                 estop_tick = estop_tick.wrapping_add(1);
                 if estop_tick % 5 == 0 {
@@ -287,6 +302,10 @@ async fn main() {
             }
             Some(cmd) = server.incoming_control.recv() => {
                 watchdog.command_received(Instant::now());
+                if cmd.gras != gras {
+                    tracing::info!("Gräsläget {} (föraren).", if cmd.gras { "PÅ: hinder först över 1 m, sakta" } else { "av" });
+                }
+                gras = cmd.gras;
                 cmds_since_log += 1;
                 last_activated = cmd.activated;
                 tracing::debug!("Kommando mottaget: throttle={} steering={}", cmd.throttle, cmd.steering);

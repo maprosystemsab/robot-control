@@ -57,10 +57,10 @@ pub fn draw(p: &egui::Painter, rect: Rect, v: &LidarVy, stopp: bool) {
     };
     let [fram, bak, hw] = v.robot;
     let kropp = Rect::from_two_pos(till(fram, hw), till(-bak, -hw)).intersect(rect);
-    p.rect_stroke(kropp, 2.0, Stroke::new(1.5, ROBOT));
+    p.rect_stroke(kropp, 2.0, Stroke::new(1.5_f32, ROBOT));
     // Nosen: en liten pil framåt.
     let nos = till(fram, 0.0);
-    p.line_segment([nos, nos - egui::vec2(0.0, 5.0)], Stroke::new(1.5, ROBOT));
+    p.line_segment([nos, nos - egui::vec2(0.0, 5.0)], Stroke::new(1.5_f32, ROBOT));
     if let Some(f) = v.fram {
         p.text(
             rect.right_top() + egui::vec2(-4.0, 3.0),
@@ -77,7 +77,7 @@ pub fn draw(p: &egui::Painter, rect: Rect, v: &LidarVy, stopp: bool) {
         egui::FontId::proportional(11.0),
         Color32::from_gray(170),
     );
-    let ram = if stopp { Stroke::new(2.5, Color32::from_rgb(230, 30, 30)) } else { Stroke::new(1.0, Color32::from_gray(90)) };
+    let ram = if stopp { Stroke::new(2.5_f32, Color32::from_rgb(230, 30, 30)) } else { Stroke::new(1.0_f32, Color32::from_gray(90)) };
     p.rect_stroke(rect, 4.0, ram);
 }
 

@@ -219,6 +219,9 @@ private:
     bool mApOnskad = false;        // senaste kommandot från RCS/robotd: autopiloten på
     bool mApVantar = false;        // lidarn håller autopiloten stilla, startas igen vid fritt
     void hinderFilter(QByteArray &data);
+    bool grasPaket(const QByteArray &data);
+    bool mGrasMeddelat = false;
+    static constexpr double GRAS_FAKTOR = 0.5;   // gräsläget: högsta gas framåt
     void hinderMeddela(const QString &text);
     QTimer *mLageknappTimer = nullptr;
     bool mLageknappFilFel = false;
