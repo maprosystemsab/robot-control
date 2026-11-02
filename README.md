@@ -40,7 +40,7 @@ Ubuntu-dator, var du än är. Datorn och roboten pratar över ett eget krypterat
 ## Installera
 
 **Roboten är färdig och du ska bara köra den?**
-Följ **[dokument/installationsguide_kund.md](dokument/installationsguide_kund.md)**, steg för steg med skärmtexter.
+Följ **`~/Robotstyrning/program/dokument/installationsguide_kund.md`** (på kontorsdatorn; skickas till kunden), steg för steg med skärmtexter.
 Kort version för en Ubuntu-dator (22.04 eller nyare):
 
 ```bash
@@ -60,7 +60,7 @@ cd ~/robot-control && git pull && bash scripts/install_client.sh
 ```
 
 **Bygger du en ny robot** (Raspberry Pi, styrkort, WireGuard-server)?
-Följ **[dokument/installationsguide.md](dokument/installationsguide.md)**. Kort sagt:
+Följ **`~/Robotstyrning/program/dokument/installationsguide.md`** (på kontorsdatorn; skickas till kunden). Kort sagt:
 
 | Skript | Körs på | Gör |
 |---|---|---|
