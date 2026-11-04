@@ -66,6 +66,12 @@ else
   echo -e "${YELLOW}Styrkortet flashas inte utan backup. Car_Client och robotd uppdateras ändå.${NC}"
 fi
 
+# WireGuard-vakten (2026-11-04): slår upp serverns adress igen om kontorets publika IP
+# byts. Installeras en gång på robotar som har wg0 men saknar vakten.
+if [ -f /etc/wireguard/wg0.conf ] && [ ! -x /usr/local/sbin/wg-vakt ]; then
+  sudo bash wireguard/wg-vakt.sh || echo -e "${YELLOW}wg-vakt kunde inte installeras${NC}"
+fi
+
 # --- 1. Car_Client --------------------------------------------------------------
 steg "1/4 Car_Client"
 if [ -f "$CC_DIR/Car_Client.pro" ]; then

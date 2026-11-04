@@ -164,6 +164,8 @@ EOF
     echo -e "Startar WireGuard wg0..."
     systemctl restart wg-quick@wg0.service &>/dev/null
     echo -e "${GREEN}✅ WireGuard-tjänsten är startad och aktiverad på den här maskinen!${NC}"
+    # Vakten slår upp serverns adress igen om kontorets publika IP byts (2026-11-04).
+    bash "$(dirname "${BASH_SOURCE[0]}")/wg-vakt.sh" || echo -e "${YELLOW}wg-vakt kunde inte installeras${NC}"
   else
     echo -e "${YELLOW}WireGuard startades inte. Du kan starta manuellt senare med: sudo wg-quick up wg0${NC}"
   fi
