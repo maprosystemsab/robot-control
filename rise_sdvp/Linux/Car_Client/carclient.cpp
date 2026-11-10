@@ -173,13 +173,18 @@ CarClient::CarClient(QObject *parent) : QObject(parent)
     connect(mLogBroadcaster, SIGNAL(dataReceived(QByteArray&)),
             this, SLOT(logBroadcasterDataReceived(QByteArray&)));
 
-    // Set up ROS 2 local server for inter-process communication
-    ros2Server = new QLocalServer(this);
-    connect(ros2Server, &QLocalServer::newConnection, this, &CarClient::handleRos2Connection);
-
-    if (!ros2Server->listen("ros2_carclient_channel")) {
-        qDebug() << "Unable to start the ROS 2 local server:" << ros2Server->errorString();
-        // Handle error - continue without ROS 2 support
+    // ROS 2-kanalen (lokal socket, Gunnars experiment): AV som standard sedan 2026-11-10,
+    // eftersom kommandona går rakt till styrkortet förbi nödstoppsspärren (nodstoppSparrar).
+    // Slå på med miljövariabeln CARCLIENT_ROS2=1 (t.ex. Environment= i car_client.service).
+    ros2Server = nullptr;
+    if (qEnvironmentVariableIntValue("CARCLIENT_ROS2") == 1) {
+        ros2Server = new QLocalServer(this);
+        connect(ros2Server, &QLocalServer::newConnection, this, &CarClient::handleRos2Connection);
+        if (!ros2Server->listen("ros2_carclient_channel")) {
+            qDebug() << "Unable to start the ROS 2 local server:" << ros2Server->errorString();
+        } else {
+            qWarning() << "ROS 2-kanalen ros2_carclient_channel är PÅ (CARCLIENT_ROS2=1): går förbi nödstoppsspärren";
+        }
     }
     
     // Log startup message
