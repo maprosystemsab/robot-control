@@ -20,6 +20,8 @@
 #include "autopilot.h"
 #include "conf_general.h"
 #include "pos.h"
+#include "motor_control.h"
+#include "commands.h"
 #include <math.h>
 
 // Private variables
@@ -29,7 +31,7 @@ static volatile float m_timeout_brake_current;
 static volatile bool m_has_timeout;
 
 // Threads
-static THD_WORKING_AREA(timeout_thread_wa, 512);
+static THD_WORKING_AREA(timeout_thread_wa, 1024);	// 30.25: anropar motor_rc_adv och printf
 static THD_FUNCTION(timeout_thread, arg);
 
 /**
@@ -83,6 +85,16 @@ static THD_FUNCTION(timeout_thread, arg) {
 	for(;;) {
 		if (m_timeout_msec != 0 && chVTTimeElapsedSinceX(m_last_update_time) > MS2ST(m_timeout_msec)) {
 #if MAIN_MODE == MAIN_MODE_vehicle
+			if (!m_has_timeout) {
+				// Firmware 30.25: när heartbeat löser ut nollas även manuell gas
+				// och vändning, som vid nödstopp (förut stängdes bara autopiloten
+				// av och resten lämnades åt VESC:ernas egen timeout).
+				motor_rc_adv(ACT_NR_FART, 0.0);
+				motor_rc_adv(ACT_NR_VANDNING, 0.0);
+				motor_stop();
+				commands_printf("Heartbeat: inga kommandon på %u ms, gas nollad och autopilot av",
+						(unsigned int)m_timeout_msec);
+			}
 			autopilot_set_active(false);
 			if (!main_config.vehicle.disable_motor && fabsf(pos_get_speed() * 3.6) > 2.0) {
 				bldc_interface_set_current_brake(m_timeout_brake_current);
