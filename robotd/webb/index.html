@@ -153,10 +153,10 @@ function ritaKnappar() {
   const a = $("aktivera");
   a.disabled = !s.driver;
   a.classList.toggle("pa", s.aktiv);
-  a.textContent = !s.driver ? "Ej förare" : s.aktiv ? `AKTIV ${s.max.toFixed(2)}` : "AKTIVERA";
+  a.textContent = !s.driver ? "Ej förare" : s.aktiv ? `AKTIV ${Math.round(s.max * 100)} %` : "AKTIVERA";
   $("ljus").classList.toggle("pa", s.ljus);
   $("vand").classList.toggle("pa", s.pivot);
-  $("maxtxt").textContent = "Max " + s.max.toFixed(2);
+  $("maxtxt").textContent = "Max " + Math.round(s.max * 100) + " %";
 }
 function lasa(varfor) { if (s.aktiv) { s.aktiv = false; skickaStyr(); if (varfor) visa(varfor); } ritaKnappar(); }
 $("aktivera").addEventListener("click", () => {
@@ -399,7 +399,7 @@ const XR_AVSTAND = 2.2, XR_BREDD = 2.4;
 
 function ritaXrStatus(c, W, H) {
   const st = s.status, rad1 = [];
-  rad1.push(!s.driver ? "EJ FÖRARE" : s.aktiv ? `AKTIV  max ${s.max.toFixed(2)}` : "LÅST – tryck A för att aktivera");
+  rad1.push(!s.driver ? "EJ FÖRARE" : s.aktiv ? `AKTIV  max ${Math.round(s.max * 100)} %` : "LÅST – tryck A för att aktivera");
   if (st) {
     if (st.speed_kmh != null) rad1.push(st.speed_kmh.toFixed(1) + " km/h");
     if (st.battery_percent != null) rad1.push("Batt " + st.battery_percent.toFixed(0) + " %");

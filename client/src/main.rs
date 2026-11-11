@@ -500,19 +500,24 @@ impl App {
                                 };
                             }
 
+                            // Visas i procent (Jonte 2026-11-11: 0,80 var svårt att förklara);
+                            // sparas och skickas som förut, 0..1.
+                            let mut procent = (self.max_output * 100.0).round();
                             let resp = ui
                                 .add(
-                                    egui::DragValue::new(&mut self.max_output)
-                                        .clamp_range(0.05..=1.0)
-                                        .speed(0.005)
-                                        .fixed_decimals(2)
-                                        .prefix("Max: "),
+                                    egui::DragValue::new(&mut procent)
+                                        .clamp_range(5.0..=100.0)
+                                        .speed(0.5)
+                                        .fixed_decimals(0)
+                                        .prefix("Max: ")
+                                        .suffix(" %"),
                                 )
                                 .on_hover_text(
-                                    "Farten vid fullt spakutslag (som Max i RControlStation). Styrningen går \
-                                     alltid på 0,8. Dra eller dubbelklicka och skriv. Gäller direkt, även under körning.",
+                                    "Farten vid fullt spakutslag, i procent av full kraft (som Max i RControlStation). \
+                                     Styrningen går alltid på 80 %. Dra eller dubbelklicka och skriv. Gäller direkt, även under körning.",
                                 );
                             if resp.changed() {
+                                self.max_output = procent / 100.0;
                                 save_max_output(self.max_output);
                             }
 
