@@ -57,6 +57,10 @@ extern float frontangle;
 extern uint16_t last_sensorvalue;
 static float angle_mv_filter = 0.0;
 static bool angle_sensor_ok = false;
+// Givaren visar en omöjlig vinkel (magneten tappad: mk1 hoppade till ca 3260 mV = 210°,
+// 2026-11-12): senaste rimliga vinkeln behålls tills den kommer tillbaka.
+static bool angle_glitch = false;
+#define ANGLE_GLITCH_DEG (ANGLE_SENSOR_MAX_DEG * 1.3)
 static void terminal_cmd_angle(int argc, const char **argv);
 static void terminal_cmd_angle_zero(int argc, const char **argv);
 static void terminal_cmd_angle_right(int argc, const char **argv);
@@ -331,17 +335,29 @@ void adconv_update_angle(void) {
 
 	angle_sensor_ok = true;
 	float c, r, l;
-	if (angle_cal_mv(&c, &r, &l)) {
+	float vinkel;
+	bool kal = angle_cal_mv(&c, &r, &l);
+	if (kal) {
 		// Höger = +ANGLE_SENSOR_MAX_DEG, vänster = -ANGLE_SENSOR_MAX_DEG, linjärt på var sida.
 		if ((mv - c) * (r - c) >= 0.0) {
-			frontangle = (mv - c) / (r - c) * ANGLE_SENSOR_MAX_DEG;
+			vinkel = (mv - c) / (r - c) * ANGLE_SENSOR_MAX_DEG;
 		} else {
-			frontangle = -(mv - c) / (l - c) * ANGLE_SENSOR_MAX_DEG;
+			vinkel = -(mv - c) / (l - c) * ANGLE_SENSOR_MAX_DEG;
 		}
 	} else {
-		frontangle = (mv - c) * ANGLE_SENSOR_DEG_PER_MV;
+		vinkel = (mv - c) * ANGLE_SENSOR_DEG_PER_MV;
+	}
+	// Omöjlig vinkel: behåll den senaste rimliga (styrningen står still under tiden,
+	// se styr_position.c; slår av autocentreringen först om det varar).
+	angle_glitch = kal && fabsf(vinkel) > ANGLE_GLITCH_DEG;
+	if (!angle_glitch) {
+		frontangle = vinkel;
 	}
 	comm_can_io_board_as5047_setangle(frontangle);
+}
+
+bool adconv_angle_glitch(void) {
+	return angle_glitch;
 }
 
 bool adconv_angle_sensor_ok(void) {

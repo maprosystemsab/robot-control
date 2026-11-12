@@ -33,6 +33,7 @@ float adconv_get_5v(void);
 #endif
 void adconv_update_angle(void);
 bool adconv_angle_sensor_ok(void);
+bool adconv_angle_glitch(void);
 bool adconv_angle_calibrated(void);
 
 #endif /* ADCONV_H_ */

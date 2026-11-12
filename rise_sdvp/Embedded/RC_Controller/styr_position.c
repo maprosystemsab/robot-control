@@ -46,6 +46,7 @@
 #ifdef ANGLE_SENSOR
 
 extern float frontangle;
+extern uint16_t last_sensorvalue;
 
 // Spakens fulla utslag så som RControlStation och robotd skickar det (styrning alltid 0,8).
 #define STYRPOS_FULL_STICK		0.8
@@ -90,6 +91,9 @@ static bool m_sensor_fault = false;	// felet gäller givaren: vinkeln används i
 static char m_fault_why[96] = "";
 // Givaren svarar inte / visar orimlig vinkel så här länge -> autocentreringen av.
 #define STYRPOS_FEL_MS			300
+// Omöjlig vinkel (magneten tappad en stund): styrmotorn står still och väntar så här
+// länge på att vinkeln kommer tillbaka innan autocentreringen slås av (mk1 2026-11-12).
+#define STYRPOS_GLITCH_MS		1000
 #define STYRPOS_ORIMLIG_DEG		(ANGLE_SENSOR_MAX_DEG * 1.3)
 static systime_t m_ok_since = 0;
 
@@ -221,15 +225,18 @@ static void check_sensor(void) {
 		m_ok_since = chVTGetSystemTimeX();
 		return;
 	}
-	bool ok = adconv_angle_sensor_ok() && fabsf(frontangle) < STYRPOS_ORIMLIG_DEG;
+	bool glitch = adconv_angle_glitch();
+	bool ok = adconv_angle_sensor_ok() && !glitch && fabsf(frontangle) < STYRPOS_ORIMLIG_DEG;
+	int fel_ms = glitch ? STYRPOS_GLITCH_MS : STYRPOS_FEL_MS;
 	if (ok) {
 		m_ok_since = chVTGetSystemTimeX();
-	} else if (chVTTimeElapsedSinceX(m_ok_since) > MS2ST(STYRPOS_FEL_MS)) {
+	} else if (chVTTimeElapsedSinceX(m_ok_since) > MS2ST(fel_ms)) {
 		if (!adconv_angle_sensor_ok()) {
 			give_up("vinkelgivaren svarar inte (kabel/magnet?)", true);
 		} else {
-			static char why[64];
-			snprintf(why, sizeof(why), "vinkelgivaren visar %.0f grader, utanför kalibreringen", (double)frontangle);
+			static char why[96];
+			snprintf(why, sizeof(why), "vinkelgivaren visar en omöjlig vinkel i över %d ms (magneten?), %.0f mV",
+					fel_ms, (double)last_sensorvalue);
 			give_up(why, true);
 		}
 	}
@@ -238,6 +245,16 @@ static void check_sensor(void) {
 void styrpos_update(void) {
 	check_sensor();
 	if (m_vesc_id < 0) {
+		return;
+	}
+	// Givaren visar en omöjlig vinkel just nu: styr inte på den, vänta (check_sensor).
+	if (adconv_angle_glitch() && !m_fault) {
+		if (m_driving) {
+			set_duty(m_vesc_id, 0.0);
+			m_driving = false;
+		}
+		m_wrong_timing = false;
+		m_stall_timing = false;
 		return;
 	}
 	if (!styrpos_available()) {
