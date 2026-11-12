@@ -54,6 +54,11 @@ extern float frontangle;
 #define STYRPOS_MAX_DEG			(ANGLE_SENSOR_MAX_DEG * 0.93)
 #define STYRPOS_HOLD_MS			3000
 #define STYRPOS_WRONG_MS		600
+// Fel håll: målet har just bytt sida (spaken vickad fort) -> hjulen rullar vidare en bit
+// av farten. De första så här många ms räknas inte, och det ska gå fel håll i två
+// mätfönster i rad innan läget slås av (mk1 2026-11-12: falsklarm vid snabb vickning).
+#define STYRPOS_WRONG_GRACE_MS	300
+#define STYRPOS_WRONG_GGR		2
 #define STYRPOS_STALL_MS		1500
 #define STYRPOS_STALL_DEG		0.5
 #define STYRPOS_STALL_MIN_ERR	5.0
@@ -96,6 +101,8 @@ static float m_wrong_start_angle = 0.0;
 static float m_wrong_dir = 0.0;
 static systime_t m_wrong_since = 0;
 static bool m_wrong_timing = false;
+static systime_t m_wrong_flip = 0;
+static int m_wrong_count = 0;
 static systime_t m_stall_since = 0;
 static float m_stall_angle = 0.0;
 static bool m_stall_timing = false;
@@ -312,13 +319,23 @@ void styrpos_update(void) {
 	if (!m_wrong_timing || dir != m_wrong_dir) {
 		m_wrong_timing = true;
 		m_wrong_dir = dir;
+		m_wrong_flip = chVTGetSystemTimeX();
+		m_wrong_since = chVTGetSystemTimeX();
+		m_wrong_start_angle = frontangle;
+		m_wrong_count = 0;
+	} else if (chVTTimeElapsedSinceX(m_wrong_flip) < MS2ST(STYRPOS_WRONG_GRACE_MS)) {
+		// Hjulen bromsar fortfarande från förra hållet: mätfönstret börjar efteråt.
 		m_wrong_since = chVTGetSystemTimeX();
 		m_wrong_start_angle = frontangle;
 	} else if (chVTTimeElapsedSinceX(m_wrong_since) > MS2ST(STYRPOS_WRONG_MS)) {
 		float moved = (frontangle - m_wrong_start_angle) * dir;	// + = mot målet
 		if (moved < -3.0) {
-			give_up("hjulen gick åt fel håll (byt tecken med styrlage tecken)", false);
-			return;
+			if (++m_wrong_count >= STYRPOS_WRONG_GGR) {
+				give_up("hjulen gick åt fel håll (byt tecken med styrlage tecken)", false);
+				return;
+			}
+		} else {
+			m_wrong_count = 0;
 		}
 		// Nytt mätfönster
 		m_wrong_since = chVTGetSystemTimeX();

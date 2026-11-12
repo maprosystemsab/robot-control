@@ -292,13 +292,34 @@ static bool angle_cal_mv(float *c, float *r, float *l) {
  * senaste vinkeln och statusen blir "fel".
  */
 void adconv_update_angle(void) {
-	// Extra lågpass (var 10:e ms, tidskonstant ca 0,15 s): med VESC:erna strömsatta
-	// brusade vinkeln ±1° (mk1 2026-10-15) och syntes som hopp i Robotstyrning.
+	// Mot bruset (VESC:erna strömsatta: ±1°, mk1 2026-10-15): median av de 5 senaste
+	// (50 ms, tar bort spikar) och sedan ett kort lågpass (tidskonstant ca 0,04 s).
+	// Förut ett lågpass på ca 0,15 s som hoppade ikapp vid 400 mV skillnad: vinkeln
+	// stod still och hoppade när magneten vreds, och kändes seg (mk1 2026-11-12).
+	static float hist[5];
+	static int hist_n = 0;
+	static int hist_i = 0;
 	static float mv_lugn = -1.0;
-	if (mv_lugn < 0.0 || fabsf(angle_mv_filter - mv_lugn) > 400.0) {
-		mv_lugn = angle_mv_filter;	// start, eller givaren kopplad/bortkopplad: följ direkt
+	hist[hist_i] = angle_mv_filter;
+	hist_i = (hist_i + 1) % 5;
+	if (hist_n < 5) {
+		hist_n++;
+	}
+	float sorted[5];
+	for (int i = 0; i < hist_n; i++) {
+		float v = hist[i];
+		int j = i;
+		while (j > 0 && sorted[j - 1] > v) {
+			sorted[j] = sorted[j - 1];
+			j--;
+		}
+		sorted[j] = v;
+	}
+	float median = sorted[hist_n / 2];
+	if (mv_lugn < 0.0 || fabsf(median - mv_lugn) > 400.0) {
+		mv_lugn = median;	// start, eller givaren kopplad/bortkopplad: följ direkt
 	} else {
-		UTILS_LP_FAST(mv_lugn, angle_mv_filter, 0.065);
+		UTILS_LP_FAST(mv_lugn, median, 0.25);
 	}
 	float mv = mv_lugn;
 	last_sensorvalue = (uint16_t)(mv < 0.0 ? 0.0 : mv);	// mV, skickas med i statusen
