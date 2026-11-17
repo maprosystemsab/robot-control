@@ -19,6 +19,12 @@
 #include <QDebug>
 #include <QLocalSocket>
 
+#ifdef Q_OS_LINUX
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
+#endif
+
 /**
  * Constructor for TcpServerSimple.
  * Initializes TCP server, packet handler, and sets up signal-slot connections.
@@ -134,30 +140,93 @@ Packet *TcpServerSimple::packet()
 void TcpServerSimple::newTcpConnection()
 {
     QTcpSocket *socket = mTcpServer->nextPendingConnection();
-    socket->setSocketOption(QAbstractSocket::LowDelayOption, true);
-
-    if (mTcpSocket) {
-        socket->close();
-        delete socket;
-    } else {
-        mTcpSocket = socket;
-
-        if (mTcpSocket) {
-            connect(mTcpSocket, SIGNAL(readyRead()), this, SLOT(tcpInputDataAvailable()));
-            connect(mTcpSocket, SIGNAL(disconnected()),
-                    this, SLOT(tcpInputDisconnected()));
- /*           connect(mTcpSocket, SIGNAL(error(QAbstractSocket::SocketError)),
-                    this, SLOT(tcpInputError(QAbstractSocket::SocketError)));*/
-            emit connectionChanged(true, mTcpSocket->peerAddress().toString());
-        }
+    if (!socket) {
+        return;
     }
+    socket->setSocketOption(QAbstractSocket::LowDelayOption, true);
+    enableKeepalive(socket);
+
+    // Återanslutning efter en halvöppet tappad 4G-länk: den gamla socketen
+    // kan annars ligga kvar i minuter (ingen FIN/RST) och blockera
+    // återanslutning (RControlStation fick "TCP Error" och Car_Client verkade
+    // hänga sig), och dess buffrade gamla styrkommandon skulle flusha som en
+    // skur när länken kom tillbaka -> roboten ryckte till. Vi låter därför en
+    // ny anslutning ta över den gamla och slänga den direkt så buffern dör.
+    //
+    // MEN bara från SAMMA peer-IP (samma operatör som återansluter). En annan
+    // peer på WG-nätet får INTE kapa en aktiv styrsession - den avvisas och får
+    // vänta tills keepalive (~6 s) städat bort en verkligt död anslutning.
+    // (Styrkanalen har ingen egen autentisering; WG är förtroendegränsen, men
+    // tyst övertagande mellan olika peers vore en onödig kapningsyta.)
+    if (mTcpSocket) {
+        if (socket->peerAddress() != mTcpSocket->peerAddress()) {
+            qDebug() << "Avvisar ny anslutning från" << socket->peerAddress().toString()
+                     << "- aktiv styrsession pågår från"
+                     << mTcpSocket->peerAddress().toString();
+            socket->abort();
+            socket->deleteLater();
+            return;
+        }
+        qDebug() << "Samma peer återansluter, tar över gammal socket från"
+                 << mTcpSocket->peerAddress().toString();
+        dropSocket(mTcpSocket);
+    }
+
+    mTcpSocket = socket;
+    connect(mTcpSocket, SIGNAL(readyRead()), this, SLOT(tcpInputDataAvailable()));
+    connect(mTcpSocket, SIGNAL(disconnected()),
+            this, SLOT(tcpInputDisconnected()));
+    connect(mTcpSocket, SIGNAL(error(QAbstractSocket::SocketError)),
+            this, SLOT(tcpInputError(QAbstractSocket::SocketError)));
+    emit connectionChanged(true, mTcpSocket->peerAddress().toString());
 }
 
 void TcpServerSimple::tcpInputDisconnected()
 {
-    emit connectionChanged(false, mTcpSocket->peerAddress().toString());
-    mTcpSocket->deleteLater();
-    mTcpSocket = 0;
+    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket) {
+        socket = mTcpSocket;
+    }
+    dropSocket(socket);
+}
+
+// Städar bort en socket en gång: kopplar loss signalerna (så vi inte får
+// dubbla anrop från abort), avbryter, raderar och meddelar frånkoppling.
+// Adressen plockas ut innan abort() eftersom den nollas då.
+void TcpServerSimple::dropSocket(QTcpSocket *socket)
+{
+    if (!socket) {
+        return;
+    }
+    QString addr = socket->peerAddress().toString();
+    if (socket == mTcpSocket) {
+        mTcpSocket = 0;
+    }
+    disconnect(socket, 0, this, 0);
+    socket->abort();
+    socket->deleteLater();
+    emit connectionChanged(false, addr);
+}
+
+// Snabb keepalive: upptäck en halvöppet död 4G-länk på ~6 s även om klienten
+// aldrig återansluter, så den städas bort och roboten bromsas.
+void TcpServerSimple::enableKeepalive(QTcpSocket *socket)
+{
+    if (!socket) {
+        return;
+    }
+    socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
+#ifdef Q_OS_LINUX
+    int fd = socket->socketDescriptor();
+    if (fd >= 0) {
+        int idle = 3;   // börja proba efter 3 s tystnad
+        int intvl = 1;  // proba var 1:e sekund
+        int cnt = 3;    // 3 missade prob -> död (~6 s totalt)
+        setsockopt(fd, IPPROTO_TCP, TCP_KEEPIDLE, &idle, sizeof(idle));
+        setsockopt(fd, IPPROTO_TCP, TCP_KEEPINTVL, &intvl, sizeof(intvl));
+        setsockopt(fd, IPPROTO_TCP, TCP_KEEPCNT, &cnt, sizeof(cnt));
+    }
+#endif
 }
 
 void TcpServerSimple::tcpInputDataAvailable()
@@ -176,9 +245,12 @@ void TcpServerSimple::tcpInputDataAvailable()
 
 void TcpServerSimple::tcpInputError(QAbstractSocket::SocketError socketError)
 {
-    (void)socketError;
-    mTcpSocket->abort();
-//    qDebug() << socketError;
+    qDebug() << "TCP-socketfel:" << socketError << "- städar bort anslutningen";
+    QTcpSocket *socket = qobject_cast<QTcpSocket*>(sender());
+    if (!socket) {
+        socket = mTcpSocket;
+    }
+    dropSocket(socket);
 }
 
 void TcpServerSimple::dataToSend(QByteArray &data)

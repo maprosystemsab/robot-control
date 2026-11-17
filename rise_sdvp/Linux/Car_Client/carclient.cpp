@@ -1256,6 +1256,14 @@ void CarClient::tcpConnectionChanged(bool connected, QString address)
         qDebug() << "TCP connection from" << address << "accepted";
     } else {
         qDebug() << "Disconnected TCP from" << address;
+
+        // Säkerhet: nolla styrningen mot kortet direkt när kopplingen tappas,
+        // i stället för att vänta på firmwarens heartbeat-timeout (3 s = flera
+        // dm rullning). CURRENT_BRAKE med 0 ström = ingen kördrift, centrerad
+        // styrning -> roboten slutar få köruppmaningar omedelbart.
+        if (mCarId != 255) {
+            mPacketInterface->setRcControlCurrentBrake(mCarId, 0.0, 0.0);
+        }
     }
 }
 

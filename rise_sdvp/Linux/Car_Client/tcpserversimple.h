@@ -54,6 +54,8 @@ private:
     bool mUsePacket;
 
     void sendMessageToRos2(const QByteArray& data);
+    void enableKeepalive(QTcpSocket *socket);
+    void dropSocket(QTcpSocket *socket);
 
 };
 
