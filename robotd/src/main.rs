@@ -256,7 +256,7 @@ async fn main() {
                     let mut status = build_status(
                         &l.status.borrow(),
                         &telemetry,
-                        &cfg.known_vesc_ids,
+                        &cfg.kravda_vesc(),
                         figures,
                         signal,
                         cfg.vehicle.steering_max_deg,

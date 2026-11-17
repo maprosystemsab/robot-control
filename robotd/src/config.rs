@@ -246,6 +246,24 @@ pub fn from_msg_role(msg: relay_protocol::VescRoleMsg) -> VescRole {
 }
 
 impl RobotConfig {
+    /// VESC som måste svara för att AKTIVERA ska gå: drift- och styr-VESC:erna.
+    /// Lastarmar, laddning och tillval får vara tysta (Jonte 2026-11-17, FMV:s
+    /// VESC 2 och 105 skickar ingen CAN-status). Saknas sådana roller: alla kända.
+    pub fn kravda_vesc(&self) -> Vec<u8> {
+        let mut ids: Vec<u8> = self
+            .vesc_profile
+            .roller
+            .iter()
+            .filter(|(_, r)| matches!(r, VescRole::DriftVanster | VescRole::DriftHoger | VescRole::Styrning))
+            .map(|(id, _)| *id)
+            .collect();
+        if ids.is_empty() {
+            return self.known_vesc_ids.clone();
+        }
+        ids.sort_unstable();
+        ids
+    }
+
     pub fn load_or_default(path: &Path) -> Self {
         match std::fs::read_to_string(path) {
             Ok(s) => match serde_json::from_str(&s) {
@@ -312,5 +330,22 @@ mod tests {
         assert_eq!(cfg.drive.speed_activity, 10);
         assert_eq!(cfg.drive.max_cap, 1.0);
         assert!(cfg.video.enabled);
+    }
+
+    #[test]
+    fn bara_drift_och_styr_kravs_for_aktivera() {
+        let mut cfg = RobotConfig::default();
+        cfg.known_vesc_ids = vec![2, 16, 94, 105, 113, 125];
+        cfg.vesc_profile.roller = [
+            (125, VescRole::DriftVanster),
+            (94, VescRole::DriftHoger),
+            (113, VescRole::Styrning),
+            (2, VescRole::Annat { namn: "Lyftarm".into(), input: "l1_l2".into(), min: -1.0, max: 1.0 }),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(cfg.kravda_vesc(), vec![94, 113, 125]);
+        cfg.vesc_profile.roller.clear();
+        assert_eq!(cfg.kravda_vesc(), vec![2, 16, 94, 105, 113, 125]);
     }
 }
