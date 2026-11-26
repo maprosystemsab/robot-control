@@ -53,6 +53,11 @@ impl RobotNamn {
     /// Adressen för ett inskrivet namn (skiftläge och mellanslag spelar ingen roll),
     /// så att man kan skriva "fmv 2" i rutan.
     pub fn adress_for(&self, text: &str) -> Option<String> {
+        // En inskriven adress är alltid en adress, aldrig ett namn — annars kunde en
+        // rad i listan med en adress som "namn" styra om anslutningen till en annan robot.
+        if ar_adress(text) {
+            return None;
+        }
         let nyckel = normalisera(text);
         if nyckel.is_empty() {
             return None;
@@ -64,6 +69,10 @@ impl RobotNamn {
             .find(|(_, n)| normalisera(n) == nyckel)
             .map(|(ip, _)| ip.clone())
     }
+}
+
+fn ar_adress(s: &str) -> bool {
+    s.trim().parse::<std::net::IpAddr>().is_ok()
 }
 
 fn normalisera(s: &str) -> String {
@@ -126,7 +135,8 @@ pub fn tolka_maskiner(xml: &str) -> BTreeMap<String, String> {
     for bit in xml.split("<machine>").skip(1) {
         if let (Some(n), Some(ip)) = (tagg(bit, "name"), tagg(bit, "ip")) {
             let (n, ip) = (avkoda(n).trim().to_string(), ip.trim().to_string());
-            if !n.is_empty() && !ip.is_empty() {
+            // Bara riktiga adresser, och aldrig ett namn som själv ser ut som en adress.
+            if !n.is_empty() && ar_adress(&ip) && !ar_adress(&n) {
                 ut.insert(ip, n);
             }
         }
@@ -168,6 +178,9 @@ mod tester {
         assert_eq!(m.get("192.168.200.13").map(String::as_str), Some("FMV 1"));
         assert_eq!(m.get("192.168.200.19").map(String::as_str), Some("Ås & Berg"));
         assert_eq!(m.len(), 2);
+        // Namn som ser ut som en adress, eller en adress som inte är en adress, tas inte med.
+        let fel = "<machines><machine><name>192.168.200.13</name><ip>192.168.200.99</ip></machine><machine><name>Skräp</name><ip>inte-en-adress</ip></machine></machines>";
+        assert!(tolka_maskiner(fel).is_empty());
     }
 
     #[test]
@@ -184,6 +197,9 @@ mod tester {
         assert_eq!(r.adress_for("fmv2").as_deref(), Some("192.168.200.18"));
         assert_eq!(r.adress_for(" FMV 2 ").as_deref(), Some("192.168.200.18"));
         assert_eq!(r.adress_for("FMV 3"), None);
+        // En adress slås aldrig upp som namn, även om någon rad skulle heta så.
+        r.namn.lock().unwrap().insert("192.168.200.99".into(), "192.168.200.13".into());
+        assert_eq!(r.adress_for("192.168.200.13"), None);
         assert_eq!(r.namn_for("192.168.200.18").as_deref(), Some("FMV 2"));
     }
 }
