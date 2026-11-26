@@ -14,6 +14,9 @@
 //! # Terminal 1: låtsas-roboten, lyssnar på alla gränssnitt port 9000
 //! cargo run -p mock-robotd -- --bind 0.0.0.0:9000
 //! # med --kor-runt kör låtsas-roboten själv i en ring (kartan i LOS-läge utan dosa)
+//! # med --firmware http://127.0.0.1:8765/ [--variant mp101-robant-nodstopp] [--fw 30.32]
+//! # [--fw-mapp MAPP] går firmwareuppdateringen (Inställningar → Robotens firmware) att
+//! # prova mot en uppdateringsmapp på den adressen, se firmware.rs
 //!
 //! # Terminal 2: klienten
 //! cargo run -p robotstyrning
@@ -21,6 +24,9 @@
 //! # på anslutningsskärmen
 //! ```
 
+mod firmware;
+
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -41,6 +47,8 @@ struct AppState {
     latest_steering: Arc<Mutex<f32>>,
     /// `--kor-runt`: roboten kör själv i en ring när ingen gasar (för att se kartan utan dosa).
     kor_runt: bool,
+    /// `--firmware KÄLLA`: firmwareuppdateringen mot ett låtsaskort.
+    firmware: Option<Arc<firmware::Firmware>>,
 }
 
 #[tokio::main]
@@ -55,7 +63,16 @@ async fn main() {
     println!("Anslut med klienten mot den här maskinens IP (t.ex. 127.0.0.1 lokalt, eller VPN-IP:n om ni testar över WireGuard).");
     println!();
 
-    let state = AppState { kor_runt: args.iter().any(|a| a == "--kor-runt"), ..Default::default() };
+    let firmware = arg_value(&args, "--firmware").map(|kalla| {
+        let mapp = arg_value(&args, "--fw-mapp").unwrap_or_else(|| "/tmp/mock-robotd-firmware".to_string());
+        let fw = arg_value(&args, "--fw").unwrap_or_else(|| "30.32".to_string());
+        println!("--firmware: låtsaskortet har version {fw}, listan hämtas från {kalla}, filerna ligger i {mapp}.");
+        if robotuppdatering::PROVBYGGE {
+            println!("PROVBYGGE: provsignerade listor godkänns.");
+        }
+        Arc::new(firmware::starta(kalla, arg_value(&args, "--variant"), mapp.into(), &fw))
+    });
+    let state = AppState { kor_runt: args.iter().any(|a| a == "--kor-runt"), firmware, ..Default::default() };
     if state.kor_runt {
         println!("--kor-runt: roboten kör själv i en ring (kartan i LOS-läge).");
     }
@@ -106,6 +123,9 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     }).await;
 
     println!("Klient ansluten som {}.", if is_driver { "FÖRARE" } else { "ÅSKÅDARE" });
+    if let Some(f) = &state.firmware {
+        f.korlage.anslutna.fetch_add(1, Ordering::Relaxed);
+    }
 
     let mut battery_percent: f32 = 87.0;
     let mut speed_kmh: f32 = 0.0;
@@ -180,6 +200,12 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     ..Default::default()
                 };
                 let mut status = status;
+                if let Some(f) = &state.firmware {
+                    status.firmware = Some(f.uppdaterare.status());
+                    if f.uppdaterare.pagar() {
+                        status.kor_sparr = Some(relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string());
+                    }
+                }
                 mock_lidar(&mut status, start.elapsed().as_secs_f32());
                 if send(&mut ws_tx, &RobotMessage::Status(status)).await.is_err() {
                     break;
@@ -196,7 +222,16 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     Some(Ok(Message::Text(text))) => {
                         last_msg_at = Instant::now();
                         match serde_json::from_str::<ClientMessage>(&text) {
-                            Ok(ClientMessage::Control(cmd)) if is_driver => {
+                            Ok(ClientMessage::Control(mut cmd)) if is_driver => {
+                                if let Some(f) = &state.firmware {
+                                    // Som riktiga robotd: under uppdateringen gäller ingen aktivering.
+                                    f.korlage.aktiverad.store(cmd.activated, Ordering::Relaxed);
+                                    if f.uppdaterare.pagar() || !cmd.activated {
+                                        cmd.throttle = 0.0;
+                                        cmd.steering = 0.0;
+                                    }
+                                    f.korlage.gas_promille.store((cmd.throttle.abs() * 1000.0) as u32, Ordering::Relaxed);
+                                }
                                 *state.latest_throttle.lock().await = cmd.throttle;
                                 *state.latest_steering.lock().await = cmd.steering;
                                 if cmd.lights != lights_on {
@@ -248,6 +283,24 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                                 let message = format!("VESC {can_id} snurrar 1 s.");
                                 let _ = send(&mut ws_tx, &RobotMessage::VescTestSpin { can_id, ok: true, message }).await;
                             }
+                            Ok(ClientMessage::Firmware(kommando)) => {
+                                use relay_protocol::firmware::FirmwareKommando;
+                                println!("Firmware: {kommando:?}");
+                                let svar = match (&state.firmware, kommando) {
+                                    _ if !is_driver => Err("Bara den som kör roboten kan uppdatera styrkortet.".to_string()),
+                                    (None, _) => Err("mock-robotd startades utan --firmware.".to_string()),
+                                    (Some(f), FirmwareKommando::Sok) => {
+                                        f.uppdaterare.sok();
+                                        Ok(())
+                                    }
+                                    (Some(f), FirmwareKommando::Uppdatera { version }) => f.uppdaterare.uppdatera(&version),
+                                    (Some(f), FirmwareKommando::Aterstall) => f.uppdaterare.aterstall(),
+                                };
+                                if let Err(text) = svar {
+                                    println!("Firmware: gjordes inte: {text}");
+                                    let _ = send(&mut ws_tx, &RobotMessage::FirmwareSvar { ok: false, text }).await;
+                                }
+                            }
                             Ok(ClientMessage::Control(_)) => {
                                 println!("Icke-förare försökte skicka Control, ignoreras.");
                             }
@@ -281,6 +334,13 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
         }
     }
 
+    if let Some(f) = &state.firmware {
+        f.korlage.anslutna.fetch_sub(1, Ordering::Relaxed);
+        if is_driver {
+            f.korlage.aktiverad.store(false, Ordering::Relaxed);
+            f.korlage.gas_promille.store(0, Ordering::Relaxed);
+        }
+    }
     if is_driver {
         *state.driver_connected.lock().await = false;
         // Bugg hittad av Dator 1 (2026-09-19): utan den här raden stod det

@@ -118,6 +118,10 @@ pub struct SettingsView {
     spin_busy: bool,
     /// (lyckades, text) efter senaste provsnurr.
     spin_msg: Option<(bool, String)>,
+    /// Robotens firmware: sök ny och uppdatera styrkortet.
+    firmware: crate::firmware::FirmwareVy,
+    /// Robotens nej på en begäran om firmwaren.
+    firmware_msg: Option<String>,
 }
 
 impl SettingsView {
@@ -135,6 +139,8 @@ impl SettingsView {
             confirm_spin: None,
             spin_busy: false,
             spin_msg: None,
+            firmware: Default::default(),
+            firmware_msg: None,
         }
     }
 
@@ -150,6 +156,9 @@ impl SettingsView {
     pub fn poll_net(&mut self, net: &mut crate::net::NetLink) {
         if let Some(result) = net.vesc_scan_result.take() {
             self.apply_scan_result(result.iter().map(|s| (s.can_id, s.responding)).collect());
+        }
+        if let Some((_, text)) = net.firmware_reply.take() {
+            self.firmware_msg = Some(text);
         }
         if let Some((_, ok, msg)) = net.test_spin_reply.take() {
             self.spin_busy = false;
@@ -232,6 +241,19 @@ impl SettingsView {
             }
 
             egui::ScrollArea::vertical().show(ui, |ui| {
+                // Robotens firmware först: det är den del en kund använder.
+                if let Some(s) = net.fresh_status() {
+                    let forare = net.state == crate::net::ConnectionState::ConnectedAsDriver;
+                    if let Some(kommando) = self.firmware.draw(ui, s.firmware.as_ref(), forare) {
+                        self.firmware_msg = None;
+                        net.firmware(kommando);
+                    }
+                    if let Some(text) = &self.firmware_msg {
+                        ui.colored_label(egui::Color32::from_rgb(230, 80, 80), text);
+                    }
+                    ui.add_space(8.0);
+                    ui.separator();
+                }
                 let mut ids: Vec<u8> = self.vescs.iter().map(|v| v.can_id).collect();
                 ids.sort_unstable();
                 for can_id in ids {

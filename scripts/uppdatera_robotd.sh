@@ -37,6 +37,12 @@ source "$HOME/.cargo/env" 2>/dev/null || true
 echo "--- Bygger robotd ---"
 cargo build --release -p robotd 2>&1 | tail -2
 
+# Ett provbygge (godkänner provsignerade uppdateringslistor, se robotuppdatering/Cargo.toml)
+# får aldrig installeras på en robot. Filen startas inte: bara märket i den letas upp.
+if grep -a -q "ROBOTUPPDATERING-PROVBYGGE-MED-PROVNYCKEL" target/release/robotd; then
+  echo "FEL: target/release/robotd är ett PROVBYGGE (byggt med provnyckeln) och installeras inte." >&2
+  exit 1
+fi
 echo "--- Installerar /usr/local/bin/robotd ---"
 sudo install -m 755 target/release/robotd /usr/local/bin/robotd
 

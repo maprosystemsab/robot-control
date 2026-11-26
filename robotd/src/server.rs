@@ -49,6 +49,7 @@ struct AppState {
     latest_status: Arc<Mutex<Option<StatusUpdate>>>,
     /// true medan minst en klient är ansluten (styr Car_Client-länken).
     clients_tx: Arc<watch::Sender<bool>>,
+    antal_tx: Arc<watch::Sender<usize>>,
 }
 
 /// Förfrågningar från en klient som huvudloopen (main.rs) hanterar och
@@ -62,6 +63,8 @@ pub enum RobotRequest {
     GetDriveLog { name: String, respond_to: mpsc::Sender<RobotMessage> },
     TestSpinVesc { can_id: u8, respond_to: mpsc::Sender<RobotMessage> },
     SetAutocenter { on: bool },
+    /// Styrkortets firmware: sök, uppdatera, återställ. Bara förare.
+    Firmware { kommando: relay_protocol::firmware::FirmwareKommando, respond_to: mpsc::Sender<RobotMessage> },
 }
 
 pub struct ServerHandles {
@@ -72,6 +75,8 @@ pub struct ServerHandles {
     pub status_broadcast: mpsc::Sender<StatusUpdate>,
     /// true medan minst en klient är ansluten.
     pub clients_connected: watch::Receiver<bool>,
+    /// Antal anslutna klienter (förare och tittare). Firmwareuppdateringen kräver att föraren är ensam.
+    pub antal_klienter: watch::Receiver<usize>,
 }
 
 /// Styranslutningen (samma som `/ws`) för webbsidan i webb.rs, som tar emot
@@ -101,6 +106,7 @@ pub fn spawn(bind_addr: String) -> ServerHandles {
 
     let latest_status = Arc::new(Mutex::new(None));
     let (clients_tx, clients_rx) = watch::channel(false);
+    let (antal_tx, antal_rx) = watch::channel(0usize);
     let broadcast_targets: Arc<Mutex<Vec<mpsc::Sender<RobotMessage>>>> = Arc::new(Mutex::new(Vec::new()));
 
     let state = AppState {
@@ -109,6 +115,7 @@ pub fn spawn(bind_addr: String) -> ServerHandles {
         request_tx,
         latest_status: latest_status.clone(),
         clients_tx: Arc::new(clients_tx),
+        antal_tx: Arc::new(antal_tx),
     };
 
     // Sprid varje ny status till alla anslutna klienters kanaler.
@@ -171,6 +178,7 @@ pub fn spawn(bind_addr: String) -> ServerHandles {
         incoming_requests: request_rx,
         status_broadcast: status_tx,
         clients_connected: clients_rx,
+        antal_klienter: antal_rx,
     }
 }
 
@@ -254,6 +262,7 @@ async fn handle_socket(
         let mut shared = state.shared.lock().await;
         shared.clients += 1;
         state.clients_tx.send_replace(true);
+        state.antal_tx.send_replace(shared.clients);
     }
 
     // Om ingen giltig ClientMessage kommit på STALE_TIMEOUT: släpp
@@ -343,6 +352,12 @@ async fn handle_socket(
                                 let _ = state.request_tx.send(RobotRequest::SetAutocenter { on }).await;
                             }
                             Ok(ClientMessage::SetAutocenter { .. }) => {}
+                            Ok(ClientMessage::Firmware(kommando)) if is_driver => {
+                                let _ = state.request_tx.send(RobotRequest::Firmware { kommando, respond_to: out_tx.clone() }).await;
+                            }
+                            Ok(ClientMessage::Firmware(_)) => {
+                                let _ = out_tx.send(RobotMessage::FirmwareSvar { ok: false, text: "Bara den som kör roboten kan uppdatera styrkortet.".into() }).await;
+                            }
                             Ok(ClientMessage::ListDriveLogs) => {
                                 let _ = state.request_tx.send(RobotRequest::ListDriveLogs {
                                     respond_to: out_tx.clone(),
@@ -401,6 +416,7 @@ async fn handle_socket(
         }
         shared.clients -= 1;
         state.clients_tx.send_replace(shared.clients > 0);
+        state.antal_tx.send_replace(shared.clients);
     }
     broadcast_targets.lock().await.retain(|t| !t.same_channel(&out_tx));
 }

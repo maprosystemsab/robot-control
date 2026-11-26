@@ -132,6 +132,11 @@ impl DriveSetpoint {
 #[derive(Debug, Clone, Default)]
 pub struct Telemetry {
     pub board: Option<BoardState>,
+    /// Firmwarens version (huvud, under) ur det senaste tillståndssvaret, och när det kom.
+    pub fw: Option<(u8, u8)>,
+    pub board_at: Option<Instant>,
+    /// När styrkortet senast skickade lägesknappens paket (firmware byggd med LAGESKNAPP=di2).
+    pub lagesknapp_at: Option<Instant>,
     pub vescs: Vec<VescStatusEntry>,
     /// Styrvinkel (grader) och om vinkelgivaren är OK, från terminalkommandot `vinkel`.
     pub steering: Option<(f32, bool)>,
@@ -182,6 +187,11 @@ pub enum ConfigRequest {
     TestSpin(u8, oneshot::Sender<Result<(), String>>),
     /// Terminalkommando utan svar (t.ex. `autocentrering pa`).
     Terminal(String),
+    /// Läs hela inställningen otolkad (säkerhetskopian före en firmwareuppdatering).
+    ReadRaw(oneshot::Sender<Result<Vec<u8>, String>>),
+    /// Skriv tillbaka en otolkad inställning och kontrolläs. Svaret är det som står på
+    /// kortet efteråt.
+    WriteRaw(Vec<u8>, oneshot::Sender<Result<Vec<u8>, String>>),
 }
 
 impl ConfigRequest {
@@ -191,6 +201,9 @@ impl ConfigRequest {
                 let _ = r.send(Err(why.to_string()));
             }
             ConfigRequest::TestSpin(_, r) => {
+                let _ = r.send(Err(why.to_string()));
+            }
+            ConfigRequest::ReadRaw(r) | ConfigRequest::WriteRaw(_, r) => {
                 let _ = r.send(Err(why.to_string()));
             }
             ConfigRequest::Terminal(cmd) => {
@@ -433,7 +446,14 @@ async fn session(
                         }
                         ch.telemetry.send_modify(|t| t.vescs = entries);
                     } else if let Some(state) = vesc_can::parse_state_reply(&pkt) {
-                        ch.telemetry.send_modify(|t| t.board = Some(state));
+                        let fw = vesc_can::parse_fw_version(&pkt);
+                        ch.telemetry.send_modify(|t| {
+                            t.board = Some(state);
+                            t.fw = fw;
+                            t.board_at = Some(Instant::now());
+                        });
+                    } else if vesc_can::ar_lagesknappspaket(&pkt) {
+                        ch.telemetry.send_modify(|t| t.lagesknapp_at = Some(Instant::now()));
                     } else if let Some(pos) = vesc_can::parse_nmea_gga(&pkt) {
                         ch.telemetry.send_modify(|t| t.gps = Some((pos, Instant::now())));
                     } else if let Some(angle) = vesc_can::parse_angle_printf(&pkt) {
@@ -554,6 +574,20 @@ async fn handle_config(link: &mut CarClientLink, car_id: u8, req: ConfigRequest)
         ConfigRequest::Terminal(cmd) => {
             tracing::info!("Terminalkommando till styrkortet: {cmd}");
             link.send_raw_payload(&vesc_can::make_terminal_cmd(car_id, &cmd)).await?;
+        }
+        ConfigRequest::ReadRaw(reply) => {
+            let r = request(link, &board_config::make_read_request(car_id), CONFIG_TIMEOUT, "läsning av inställningarna", board_config::parse_raw_read_reply).await?;
+            let _ = reply.send(r);
+        }
+        ConfigRequest::WriteRaw(body, reply) => {
+            let result = async {
+                tracing::warn!("Skriver tillbaka styrkortets sparade inställningar ({} byte).", body.len());
+                let write = board_config::make_raw_write_request(car_id, &body);
+                request(link, &write, CONFIG_WRITE_TIMEOUT, "skrivningen", |p| board_config::is_write_ack(p).then_some(())).await??;
+                request(link, &board_config::make_read_request(car_id), CONFIG_TIMEOUT, "läsning av inställningarna", board_config::parse_raw_read_reply).await?
+            }
+            .await;
+            let _ = reply.send(result);
         }
         ConfigRequest::TestSpin(vesc, reply) => {
             tracing::info!("Provsnurr VESC {vesc}.");

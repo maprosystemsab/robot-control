@@ -5,6 +5,7 @@ mod config;
 mod display;
 mod drive_log;
 mod estop;
+mod firmware;
 mod gpio_lighting;
 mod lidar;
 mod ramp;
@@ -32,9 +33,16 @@ const GRAS_FIL: &str = "/run/lidar_gras_robotstyrning";
 
 #[tokio::main]
 async fn main() {
+    if std::env::args().any(|a| a == "--version") {
+        println!("{}{}", firmware::VERSION, if robotuppdatering::PROVBYGGE { " PROVBYGGE" } else { "" });
+        return;
+    }
     tracing_subscriber::fmt::init();
 
-    let cfg = RobotConfig::load_or_default(Path::new(CONFIG_PATH));
+    // ROBOTD_CONFIG: annan inställningsfil (prov utan hårdvara). Ändringar som robotd själv
+    // sparar (VESC-profilen) skrivs fortfarande till den vanliga filen.
+    let config_path = std::env::var_os("ROBOTD_CONFIG").map_or_else(|| std::path::PathBuf::from(CONFIG_PATH), Into::into);
+    let cfg = RobotConfig::load_or_default(&config_path);
     tracing::info!("robotd startar som '{}'", cfg.robot_id);
 
     // Nätverket: robotd LYSSNAR direkt på sin WireGuard-IP (se
@@ -64,6 +72,13 @@ async fn main() {
         }
     };
     let car_client_ok = || link.as_ref().is_some_and(|l| l.status.borrow().connected);
+
+    // Uppdateringen av styrkortets firmware (Inställningar i Robotstyrning), se firmware.rs.
+    let firmware = link.as_ref().map(|l| firmware::starta(&cfg.firmware, l.config.clone()));
+    let fw_pagar = || firmware.as_ref().is_some_and(|f| f.pagar());
+    // För spärrarna: sedan när roboten stått still, och sedan när kortet svarat utan avbrott.
+    let mut fw_stilla_sedan: Option<Instant> = None;
+    let mut fw_kort_sedan: Option<Instant> = None;
 
     let mut lighting = match gpio_lighting::LightingRelay::new(cfg.lighting_gpio_pin, false) {
         Ok(l) => {
@@ -269,6 +284,37 @@ async fn main() {
                     }
                     status.lidar_vy = lidar::read_vy();
 
+                    // Styrkortets firmware: säg till uppdateraren hur roboten står, och ta med läget.
+                    if let Some(f) = &firmware {
+                        let svarar = telemetry.board_at.is_some_and(|at| at.elapsed() < Duration::from_secs(3));
+                        let fart = telemetry.board.filter(|_| svarar).map(|b| b.speed_ms);
+                        let styr = throttle_ramp.current() != 0.0 || steering_ramp.current() != 0.0 || target_pivot;
+                        fw_stilla_sedan = if styr || fart.is_some_and(|v| v.abs() > 0.05) { None } else { fw_stilla_sedan.or(Some(Instant::now())) };
+                        fw_kort_sedan = if svarar { fw_kort_sedan.or(Some(Instant::now())) } else { None };
+                        // Lägesknappens paket kommer varje sekund från en firmware byggd med den;
+                        // okänt tills kortet svarat en stund.
+                        let lagesknapp = match telemetry.lagesknapp_at {
+                            Some(at) if at.elapsed() < Duration::from_secs(4) => Some(true),
+                            _ if fw_kort_sedan.is_some_and(|s| s.elapsed() > Duration::from_secs(10)) => Some(false),
+                            _ => None,
+                        };
+                        let lage = firmware::Lage {
+                            aktiverad: last_activated,
+                            styr,
+                            fart_ms: fart,
+                            stilla: fw_stilla_sedan.map(|s| s.elapsed()),
+                            andra_anslutna: server.antal_klienter.borrow().saturating_sub(1),
+                            batteri_procent: status.battery_percent.filter(|_| svarar),
+                            markfel: firmware::markfel(cfg.firmware.variant.as_deref(), Path::new("/")),
+                        };
+                        let fw = telemetry.fw.zip(telemetry.board_at).filter(|_| svarar).map(|(v, nar)| (v, nar.into_std()));
+                        f.lagesbild(firmware::lagesbild(fw, firmware::sparrar(&lage), lagesknapp));
+                        status.firmware = Some(f.status());
+                        if f.pagar() {
+                            status.kor_sparr = Some(relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string());
+                        }
+                    }
+
                     // Körlogg: en fil per körning (medan länken till styrkortet är uppe,
                     // dvs. medan någon är ansluten), en rad per sekund.
                     let connected = l.status.borrow().connected;
@@ -309,11 +355,13 @@ async fn main() {
                 cmds_since_log += 1;
                 last_activated = cmd.activated;
                 tracing::debug!("Kommando mottaget: throttle={} steering={}", cmd.throttle, cmd.steering);
+                // Medan styrkortet uppdateras gäller ingen aktivering.
+                let aktiverad = cmd.activated && !fw_pagar();
                 // Klienten nollar redan när AKTIVERA är av, men robotd litar inte på det.
-                let clean = |v: f32| if cmd.activated && v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
+                let clean = |v: f32| if aktiverad && v.is_finite() { v.clamp(-1.0, 1.0) } else { 0.0 };
                 target_throttle = clean(cmd.throttle);
                 target_steering = clean(cmd.steering);
-                target_pivot = cmd.activated && cmd.pivot;
+                target_pivot = aktiverad && cmd.pivot;
                 if target_pivot {
                     // Gasen räknas inte under vändning, och ska inte ha rampat upp när O släpps.
                     target_throttle = 0.0;
@@ -339,6 +387,36 @@ async fn main() {
             }
             Some(req) = server.incoming_requests.recv() => {
                 match req {
+                    RobotRequest::Firmware { kommando, respond_to } => {
+                        use relay_protocol::firmware::FirmwareKommando;
+                        tracing::info!("Föraren: firmware {kommando:?}.");
+                        let svar = match (&firmware, kommando) {
+                            (None, _) => Some(Err("Roboten har ingen länk till styrkortet (car_client_addr).".to_string())),
+                            (Some(f), FirmwareKommando::Sok) => {
+                                f.sok();
+                                None
+                            }
+                            (Some(f), FirmwareKommando::Uppdatera { version }) => Some(f.uppdatera(&version).map(|()| format!("Uppdateringen av styrkortet till {version} har börjat."))),
+                            (Some(f), FirmwareKommando::Aterstall) => Some(f.aterstall().map(|()| "Återställningen av styrkortet har börjat.".to_string())),
+                        };
+                        match svar {
+                            Some(Ok(t)) => tracing::warn!("{t}"),
+                            // Bara ett nej skickas som svar: hur det går syns i statusen.
+                            Some(Err(text)) => {
+                                tracing::warn!("Firmware: gjordes inte: {text}");
+                                let _ = respond_to.send(RobotMessage::FirmwareSvar { ok: false, text }).await;
+                            }
+                            None => {}
+                        }
+                    }
+                    // Medan styrkortet uppdateras får ingenting annat läsa eller skriva i det.
+                    RobotRequest::ReadActuators { respond_to } | RobotRequest::WriteActuators { respond_to, .. } if fw_pagar() => {
+                        let _ = respond_to.send(RobotMessage::ActuatorError(relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string())).await;
+                    }
+                    RobotRequest::TestSpinVesc { can_id, respond_to } if fw_pagar() => {
+                        let _ = respond_to.send(RobotMessage::VescTestSpin { can_id, ok: false, message: relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string() }).await;
+                    }
+                    RobotRequest::SetAutocenter { .. } if fw_pagar() => {}
                     RobotRequest::ScanVescBus { respond_to } => {
                         // Egen uppgift med egen kortvarig anslutning: en skanning
                         // kan ta flera sekunder och ska inte blockera huvudloopen.
@@ -631,7 +709,7 @@ mod tests {
             roll_deg: 4.0, pitch_deg: -1.5, yaw_deg: 210.0,
             speed_ms: -1.0, v_in: 48.2, temp_mos: 35.0, fault_code: 2,
         };
-        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((-12.5, true)), autocenter: None, gps: None };
+        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((-12.5, true)), autocenter: None, gps: None, ..Default::default() };
         let fig = vehicle::VehicleFigures { percent: 50.0, charging: Some(true), power_w: 120.0, wh_per_km: Some(90.0), range_km: Some(13.3) };
         let sig = router::RouterSignal { rssi_dbm: Some(-71), info: Some("4G Telia".into()) };
         let s = build_status(&car_client_link::LinkStatus::default(), &t, &[90, 87], Some(fig), Some(sig), 25.0);
@@ -643,7 +721,7 @@ mod tests {
         assert_eq!(s.battery_charging, Some(true));
         assert_eq!(s.rssi_dbm, Some(-71));
         // Vinkelgivaren säger FEL: ingen styrvinkel alls.
-        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((0.0, false)), autocenter: None, gps: None };
+        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((0.0, false)), autocenter: None, gps: None, ..Default::default() };
         let s = build_status(&car_client_link::LinkStatus::default(), &t, &[], None, None, 25.0);
         assert_eq!(s.steering_deg, None);
         assert_eq!(s.steering_percent, None);

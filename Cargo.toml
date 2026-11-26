@@ -8,6 +8,7 @@ members = [
     "robotctl",
     "client",
     "mock-robotd",
+    "robotuppdatering",
 ]
 # OBS: relay-server är INTE med i workspacet längre. Arkitekturen bytte
 # 2026-09-19 till att robotd lyssnar direkt över WireGuard-VPN:et istället

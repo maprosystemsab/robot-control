@@ -7,6 +7,7 @@
 //! Kan minimeras/flyttas som ett vanligt fönster, tvingar inte helskärm.
 //! Språk: svenska.
 
+mod firmware;
 mod gamepad;
 mod hud;
 mod net;

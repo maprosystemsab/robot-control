@@ -67,7 +67,15 @@ pub enum ClientMessage {
     TestSpinVesc { can_id: u8 },
     /// Knappen Autocentrering (firmware 30.18): på/av, sparas i styrkortet. Bara förare.
     SetAutocenter { on: bool },
+    /// Styrkortets firmware: sök ny, uppdatera, återställ. Bara föraren. Roboten hämtar och
+    /// kontrollerar allt själv; läget kommer i `StatusUpdate::firmware`, ett nej som
+    /// `RobotMessage::FirmwareSvar`. Skickas bara till en robotd som har fältet i sin status
+    /// (äldre robotd känner inte till meddelandet).
+    Firmware(firmware::FirmwareKommando),
 }
+
+/// Firmwareuppdateringens meddelanden (gemensamma med SentinAnt, se `robotuppdatering`).
+pub use robotuppdatering::protokoll as firmware;
 
 /// Skickas av robotd till en ansluten klient.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -96,6 +104,8 @@ pub enum RobotMessage {
     DriveLogError(String),
     /// Svar på TestSpinVesc: `ok` om styrkortet startade provsnurret.
     VescTestSpin { can_id: u8, ok: bool, message: String },
+    /// Svar på `ClientMessage::Firmware` när roboten inte gör det som begärdes, med orsaken.
+    FirmwareSvar { ok: bool, text: String },
 }
 
 /// En aktuator på styrkortet: vilken motor som styrs av vilken aktivitet.
@@ -236,6 +246,13 @@ pub struct StatusUpdate {
     /// Vad lidarn ser, ovanifrån. `None` = ingen lidar (eller den svarar inte).
     #[serde(default)]
     pub lidar_vy: Option<LidarVy>,
+    /// Robotd vägrar köra just nu, med orsaken (styrkortet uppdateras). `None` = ingen spärr.
+    #[serde(default)]
+    pub kor_sparr: Option<String>,
+    /// Styrkortets firmware och uppdateringen av den. `None` = robotd kan inte uppdatera
+    /// kortet härifrån (äldre robotd).
+    #[serde(default)]
+    pub firmware: Option<firmware::FirmwareStatus>,
 }
 
 /// Lidarns vy ovanifrån i robotens koordinater (x framåt, y åt vänster, meter).

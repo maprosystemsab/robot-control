@@ -29,6 +29,19 @@ const ACTUATOR_BLOCK: usize = 2 + 4 * 8;
 const AFTER_ACTUATORS: usize = (2 + 4 * 8) + (2 + 4 * 31);
 pub const SLOTS: usize = 4;
 
+/// Hela inställningen som den kom (utan `[id][kommando]`), utan att tolka den. Används
+/// för säkerhetskopian före en firmwareuppdatering.
+pub fn parse_raw_read_reply(payload: &[u8]) -> Option<Vec<u8>> {
+    (payload.len() > 2 && payload[1] == CMD_GET_MAIN_CONFIG).then(|| payload[2..].to_vec())
+}
+
+/// Skriver tillbaka en inställning precis som den lästes (`body` från [`parse_raw_read_reply`]).
+pub fn make_raw_write_request(car_id: u8, body: &[u8]) -> Vec<u8> {
+    let mut p = vec![car_id, CMD_SET_MAIN_CONFIG];
+    p.extend_from_slice(body);
+    p
+}
+
 pub fn make_read_request(car_id: u8) -> Vec<u8> {
     vec![car_id, CMD_GET_MAIN_CONFIG]
 }

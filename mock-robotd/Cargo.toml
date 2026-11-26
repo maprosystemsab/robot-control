@@ -3,8 +3,13 @@ name = "mock-robotd"
 edition.workspace = true
 version.workspace = true
 
+[features]
+# Godkänner provsignerade uppdateringslistor (prov av firmwareuppdateringen utan hårdvara).
+provnyckel = ["robotuppdatering/provnyckel"]
+
 [dependencies]
 relay-protocol = { path = "../relay-protocol" }
+robotuppdatering = { path = "../robotuppdatering", features = ["robot"] }  # firmwareuppdateringen mot ett låtsaskort
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }
 futures-util = "0.3"

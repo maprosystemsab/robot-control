@@ -47,6 +47,8 @@ pub struct NetLink {
     pub drive_log_reply: Option<DriveLogReply>,
     /// Senaste svar på ett provsnurr: (VESC-ID, startat, text).
     pub test_spin_reply: Option<(u8, bool, String)>,
+    /// Robotens nej på en begäran om firmwaren (lyckades, text).
+    pub firmware_reply: Option<(bool, String)>,
 }
 
 /// Svar från robotd om körloggarna.
@@ -78,6 +80,8 @@ enum LinkUpdate {
     Actuators(ActuatorReply),
     DriveLogs(DriveLogReply),
     TestSpin(u8, bool, String),
+    /// Roboten gjorde inte det som begärdes om firmwaren (lyckades, text).
+    FirmwareSvar(bool, String),
 }
 
 impl NetLink {
@@ -98,6 +102,7 @@ impl NetLink {
             actuator_reply: None,
             drive_log_reply: None,
             test_spin_reply: None,
+            firmware_reply: None,
         }
     }
 
@@ -152,6 +157,7 @@ impl NetLink {
                 LinkUpdate::Actuators(r) => self.actuator_reply = Some(r),
                 LinkUpdate::DriveLogs(r) => self.drive_log_reply = Some(r),
                 LinkUpdate::TestSpin(id, ok, msg) => self.test_spin_reply = Some((id, ok, msg)),
+                LinkUpdate::FirmwareSvar(ok, text) => self.firmware_reply = Some((ok, text)),
             }
         }
     }
@@ -204,6 +210,14 @@ impl NetLink {
     pub fn test_spin_vesc(&self, can_id: u8) {
         if let Some(tx) = &self.request_tx {
             let _ = tx.try_send(ClientMessage::TestSpinVesc { can_id });
+        }
+    }
+
+    /// Styrkortets firmware: sök, uppdatera, återställ. Läget kommer i statusen
+    /// (`StatusUpdate::firmware`), ett nej i `firmware_reply`.
+    pub fn firmware(&self, kommando: relay_protocol::firmware::FirmwareKommando) {
+        if let Some(tx) = &self.request_tx {
+            let _ = tx.try_send(ClientMessage::Firmware(kommando));
         }
     }
 
@@ -328,6 +342,9 @@ async fn run_connection(
                                 }
                                 RobotMessage::ActuatorError(e) => {
                                     let _ = updates_tx.send(LinkUpdate::Actuators(ActuatorReply::Error(e))).await;
+                                }
+                                RobotMessage::FirmwareSvar { ok, text } => {
+                                    let _ = updates_tx.send(LinkUpdate::FirmwareSvar(ok, text)).await;
                                 }
                                 RobotMessage::VescTestSpin { can_id, ok, message } => {
                                     let _ = updates_tx.send(LinkUpdate::TestSpin(can_id, ok, message)).await;

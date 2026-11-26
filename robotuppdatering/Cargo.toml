@@ -1,0 +1,32 @@
+# Gemensam kod för uppdateringarna: den signerade beskrivningen (uppdatering.json) och
+# uppdateringen av styrkortets firmware från roboten.
+#
+# ORIGINALET ligger i autorobot (SentinAnt): robotuppdatering/. robot-control har en
+# ordagrann kopia i samma mapp. Ändra här och kopiera dit (scripts/jamfor_robotuppdatering.sh
+# i båda repona säger till om kopiorna skiljer sig). Bara egen kod, ingen GPL.
+[package]
+name = "robotuppdatering"
+edition = "2021"
+version = "0.1.0"
+publish = false
+
+[features]
+default = []
+# Kontrollen av beskrivningen: signatur (ed25519), löpnummer, filers storlek och SHA-256.
+kontroll = ["dep:ring", "dep:chrono", "dep:serde_json"]
+# Robotsidan: hämtning, spärrar, flashning med openocd och tillståndet på disk.
+robot = ["kontroll", "dep:ureq"]
+# BARA FÖR PROV: godkänner också beskrivningar signerade med provnyckeln (som vem som helst
+# kan räkna fram). Får aldrig vara på i ett program som installeras på en robot eller dator;
+# ett sådant bygge säger "PROVBYGGE" i loggen, i --version och på skärmen.
+provnyckel = []
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", optional = true }
+ring = { version = "0.17", optional = true }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"], optional = true }
+ureq = { version = "2", optional = true }
+
+[dev-dependencies]
+serde_json = "1"

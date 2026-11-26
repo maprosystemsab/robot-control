@@ -190,6 +190,22 @@ pub fn make_state_request(car_id: u8) -> Vec<u8> {
 /// och sedan float32 som i32 big-endian (värde*skala): roll, pitch, yaw,
 /// accel×3, gyro×3, mag×3, px, py, speed (1e6), v_in (1e6), temp_mos (1e6),
 /// felkod (u8), … Resten av paketet bryr vi oss inte om.
+/// Firmwarens version ur tillståndssvaret (`[id][120][huvud][under]`).
+pub fn parse_fw_version(payload: &[u8]) -> Option<(u8, u8)> {
+    (payload.len() >= 73 && payload[1] == CMD_GET_STATE).then(|| (payload[2], payload[3]))
+}
+
+/// Paketet som en firmware byggd med lägesknapp på DI2 skickar av sig själv varje sekund:
+/// `[id][144][läge]`. robotd bryr sig bara om ATT det kommer (då är firmwaren byggd så),
+/// för kontrollen av kortvarianten före en firmwareuppdatering. Nödstoppets paket (143)
+/// går inte att använda på samma sätt här: Car_Client skickar ett eget 143 för nödstoppet
+/// på Pi:ns GPIO27, så det säger inte hur firmwaren är byggd.
+pub const CMD_LAGESKNAPP: u8 = 144;
+
+pub fn ar_lagesknappspaket(payload: &[u8]) -> bool {
+    payload.len() >= 3 && payload[1] == CMD_LAGESKNAPP
+}
+
 pub fn parse_state_reply(payload: &[u8]) -> Option<BoardState> {
     if payload.len() < 73 || payload[1] != CMD_GET_STATE {
         return None;

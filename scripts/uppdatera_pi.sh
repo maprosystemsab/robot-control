@@ -92,6 +92,13 @@ if [ -f "$CC_DIR/Car_Client.pro" ]; then
     if systemctl list-unit-files car_client.service >/dev/null 2>&1 && systemctl is-enabled --quiet car_client.service; then
       sudo systemctl restart car_client.service && echo "car_client.service omstartad."
     fi
+    # Car_Clients version (= firmwareversionen i källan den byggdes ur) antecknas, så att
+    # firmwareuppdateringen från apparna kan kontrollera kravet "car_client minst X.Y".
+    CC_VER=$(python3 "$TOOLS/fw_version.py" --kalla "$FW_DIR" 2>/dev/null || true)
+    if [[ "$CC_VER" =~ ^[0-9]+\.[0-9]+$ ]]; then
+      sudo mkdir -p /var/lib/robotuppdatering/komponenter
+      echo "$CC_VER" | sudo tee /var/lib/robotuppdatering/komponenter/car_client >/dev/null
+    fi
   else
     fel "Car_Client gick inte att bygga (se ovan)."
   fi
@@ -190,6 +197,13 @@ else
 fi
 if [ "${FLASHAT:-0}" = "1" ] && grep -q "ANGLE_SENSOR_PA3" "$FW_DIR/conf_general.h" 2>/dev/null && [ "$KORTTYP" != rovmcu ]; then
   SAMMANFATTNING+=("Gör själv: kontrollera styrningen (kör 'vinkel' i RControlStation, och kalibrera vid behov)")
+fi
+
+# Firmwareuppdateringen från Robotstyrning/SentinAnt kräver att kortvarianten står i
+# robotd:s inställningar. Den skrivs aldrig av sig själv; här visas bara vad som gäller.
+if [ -f /etc/robotd/config.json ] && ! sudo grep -q '"variant"[[:space:]]*:[[:space:]]*"' /etc/robotd/config.json; then
+  FORSLAG="$([ "$KORTTYP" = rovmcu ] && echo mp101 || echo gamla)-$MASKIN$([ -f /etc/robotd/nodstopp-di1 ] && echo -nodstopp)$([ -f /etc/robotd/lagesknapp-di2 ] && echo -lagesknapp)"
+  SAMMANFATTNING+=("Kortvarianten är inte angiven: styrkortet kan inte uppdateras från apparna. Stämmer $FORSLAG (så här byggde skriptet): sudo bash scripts/satt_kortvariant.sh $FORSLAG")
 fi
 
 echo

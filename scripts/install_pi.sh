@@ -75,6 +75,12 @@ fi
 echo "--- Bygger robotd + robotctl (release, kan ta flera minuter på en Pi) ---"
 cargo build --release -p robotd -p robotctl
 
+# Ett provbygge (godkänner provsignerade uppdateringslistor, se robotuppdatering/Cargo.toml)
+# får aldrig installeras på en robot. Filen startas inte: bara märket i den letas upp.
+if grep -a -q "ROBOTUPPDATERING-PROVBYGGE-MED-PROVNYCKEL" target/release/robotd; then
+  echo "FEL: target/release/robotd är ett PROVBYGGE (byggt med provnyckeln) och installeras inte." >&2
+  exit 1
+fi
 echo "--- Installerar binärer till /usr/local/bin ---"
 sudo install -m 755 target/release/robotd /usr/local/bin/robotd
 sudo install -m 755 target/release/robotctl /usr/local/bin/robotctl
@@ -120,6 +126,15 @@ if [ ! -f /etc/robotd/config.json ]; then
   else
     LIGHTING_GPIO="${LIGHTING_GPIO:-17}"
   fi
+  # Kortvarianten för firmwareuppdateringen från Robotstyrning (FW_VARIANT, t.ex.
+  # mp101-robant-nodstopp eller gamla-robant; se UPPDATERING_FIRMWARE.md). Den gissas aldrig:
+  # utan den går styrkortet inte att uppdatera från appen. Sätts i efterhand med
+  # scripts/satt_kortvariant.sh.
+  FW_VARIANT="${FW_VARIANT:-}"
+  if [ -n "$FW_VARIANT" ] && ! [[ "$FW_VARIANT" =~ ^(gamla-(robant|mactrac|drangen)|mp101-(robant|mactrac|drangen)(-nodstopp)?(-lagesknapp)?)$ ]]; then
+    echo "FW_VARIANT=$FW_VARIANT är ingen giltig kortvariant." >&2; exit 1
+  fi
+  FW_VARIANT_JSON=null; [ -n "$FW_VARIANT" ] && FW_VARIANT_JSON="\"$FW_VARIANT\""
   sudo tee /etc/robotd/config.json > /dev/null <<EOF
 {
   "robot_id": "${ROBOT_ID}",
@@ -133,7 +148,8 @@ if [ ! -f /etc/robotd/config.json ]; then
   "known_vesc_ids": [${VESC_IDS}],
   "usb_device_path": "${USB_DEVICE_PATH}",
   "drive": { "speed_max": ${DRIVE_MAX}, "steering_max": ${STEER_MAX} },
-  "video": { "encoder": "${VIDEO_ENCODER}" }
+  "video": { "encoder": "${VIDEO_ENCODER}" },
+  "firmware": { "variant": ${FW_VARIANT_JSON} }
 }
 EOF
   echo "Skapade /etc/robotd/config.json (robot_id=${ROBOT_ID}, bind_addr=${BIND_ADDR}, bil-ID=${CAR_ID}, VESC=${VESC_IDS}, max=${DRIVE_MAX}, styr=${STEER_MAX}, video=${VIDEO_ENCODER})."

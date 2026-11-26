@@ -2,8 +2,14 @@
 name = "robotd"
 edition.workspace = true
 version.workspace = true
+build = "build.rs"       # versionen (commit-tiden)
+
+[features]
+# BARA FÖR PROV: godkänner uppdateringslistor signerade med provnyckeln. Aldrig på en robot.
+provnyckel = ["robotuppdatering/provnyckel"]
 
 [dependencies]
+robotuppdatering = { path = "../robotuppdatering", features = ["robot"] }  # firmwareuppdateringen
 relay-protocol = { path = "../relay-protocol" }
 tokio = { version = "1", features = ["full"] }
 axum = { version = "0.7", features = ["ws"] }

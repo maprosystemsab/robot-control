@@ -69,6 +69,8 @@ pub struct RobotConfig {
     pub drive: DriveConfig,
     /// Fordonsdata till klienten: batteri, styrvinkel, router, körlogg.
     pub vehicle: VehicleConfig,
+    /// Uppdateringen av styrkortets firmware från Robotstyrning, se `firmware.rs`.
+    pub firmware: crate::firmware::FirmwareConfig,
 }
 
 /// Fordonsdata som visas i Robotstyrning (2026-10-05, kundens önskemål).
@@ -227,6 +229,7 @@ impl Default for RobotConfig {
             video: VideoConfig::default(),
             drive: DriveConfig::default(),
             vehicle: VehicleConfig::default(),
+            firmware: Default::default(),
         }
     }
 }

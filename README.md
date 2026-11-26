@@ -84,6 +84,7 @@ Robotstyrning och RControlStation kan inte vara anslutna till samma robot samtid
 | `robotd/` | Tjänsten på robotens Pi: tar emot styrningen, watchdog, ramper, video, status |
 | `relay-protocol/` | Meddelandena mellan appen och robotd (delas av båda) |
 | `mock-robotd/` | En låtsasrobot för att testa appen utan hårdvara |
+| `robotuppdatering/` | Uppdateringen av styrkortets firmware från appen (gemensam med SentinAnt), se [UPPDATERING_FIRMWARE.md](UPPDATERING_FIRMWARE.md) |
 | `robotctl/` | Litet verktyg på Pi:n |
 | `rise_sdvp/` | Car_Client och styrkortets firmware (från rise_sdvp), så att repot klarar sig självt |
 | `wireguard/` | Skript och guider för VPN:et |
