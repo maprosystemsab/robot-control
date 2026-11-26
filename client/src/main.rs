@@ -15,6 +15,7 @@ mod video;
 mod guide;
 mod lidarvy;
 mod robotnamn;
+mod karta;
 
 use std::time::{Duration, Instant};
 
@@ -105,6 +106,10 @@ struct App {
     video_texture: Option<egui::TextureHandle>,
     /// Röd färdlinje i kamerabilden och bakhjulsvyn (knappen "Färdlinje").
     show_guide: bool,
+    /// Kartan som visas i LOS-läge när det inte finns någon kamerabild.
+    karta: karta::Karta,
+    /// LOS med kamerabild: visa kartan i stället för bilden (knappen Karta).
+    los_karta: bool,
     /// Gräsläget (knappen "Gräs"): lidarn räknar bara det som är högre än 1 m som hinder
     /// och Car_Client kör sakta. Sparas inte; av från start.
     gras: bool,
@@ -144,6 +149,8 @@ impl App {
             video_port: 9001,
             video_texture: None,
             show_guide: true,
+            karta: karta::Karta::default(),
+            los_karta: false,
             gras: false,
             lidar_stor: false,
             max_output: load_max_output(),
@@ -346,6 +353,7 @@ impl App {
         // Videon på en egen anslutning till samma värd, så en tung bildruta
         // aldrig kan fördröja styrkommandon på styr-anslutningen.
         self.video_texture = None;
+        self.karta.ny_anslutning();
         self.video.start(target, self.video_port);
         self.screen = Screen::Driving;
     }
@@ -425,6 +433,10 @@ impl App {
             }
         }
         let video_live = self.video.is_live();
+        // LOS utan kamerabild: karta i stället för svart skärm. Med kamerabild
+        // väljer man själv med knappen Karta.
+        let visa_karta = self.driving_mode == DrivingMode::Los && (self.video_texture.is_none() || self.los_karta);
+        let position = self.net.fresh_status().and_then(karta::Position::fran_status);
 
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::from_gray(20)))
@@ -432,6 +444,10 @@ impl App {
                 let rect = ui.max_rect();
                 ui.painter().rect_filled(rect, 0.0, egui::Color32::from_gray(10));
                 match &self.video_texture {
+                    _ if visa_karta => {
+                        self.karta.visa(ui, rect, position);
+                        self.karta.visa_reglage(ctx, position);
+                    }
                     Some(tex) => {
                         // Rita bilden så stor som möjligt utan att förvränga den.
                         let tex_size = tex.size_vec2();
@@ -595,6 +611,15 @@ impl App {
                                 .clicked()
                             {
                                 self.gras = !self.gras;
+                            }
+                            if self.driving_mode == DrivingMode::Los
+                                && self.video_texture.is_some()
+                                && ui
+                                    .selectable_label(self.los_karta, "Karta")
+                                    .on_hover_text("Visa kartan i stället för kamerabilden (LOS-läge)")
+                                    .clicked()
+                            {
+                                self.los_karta = !self.los_karta;
                             }
                             if ui
                                 .selectable_label(self.show_guide, "Färdlinje")

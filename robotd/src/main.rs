@@ -568,10 +568,11 @@ fn build_status(
     let fault_text = board.and_then(|b| vesc_can::fault_text(b.fault_code));
     // Vinkelgivaren räknas bara när den själv säger OK.
     let steering = t.steering.filter(|(_, ok)| *ok).map(|(deg, _)| deg);
+    let gps = t.gps.filter(|(_, at)| at.elapsed() < GPS_MAX_AGE).map(|(g, _)| g);
     StatusUpdate {
         speed_kmh: board.map(|b| b.speed_ms.abs() * 3.6),
         battery_percent: figures.map(|f| f.percent),
-        gps_fix: false,
+        gps_fix: gps.is_some(),
         vesc_temps_c: board.map(|b| vec![b.temp_mos]).unwrap_or_default(),
         last_error: link.error.clone().or(fault_text.clone()),
         link_quality: relay_protocol::LinkQuality::Green,
@@ -594,9 +595,18 @@ fn build_status(
         signal_info: signal.and_then(|s| s.info),
         estop: None,
         autocenter: t.autocenter,
+        lat: gps.map(|g| g.lat),
+        lon: gps.map(|g| g.lon),
+        gps_quality: gps.map(|g| g.quality),
+        gps_sats: gps.map(|g| g.sats),
+        heading_deg: board.map(|b| vesc_can::heading_from_yaw(b.yaw_deg)),
         ..Default::default()
     }
 }
+
+/// En GPS-position äldre än så här visas inte (mottagaren har tappat positionen
+/// eller NMEA-raderna har slutat komma).
+const GPS_MAX_AGE: Duration = Duration::from_secs(3);
 
 fn check_internet() -> bool {
     std::fs::read_to_string("/sys/class/net/wg0/operstate")
@@ -621,7 +631,7 @@ mod tests {
             roll_deg: 4.0, pitch_deg: -1.5, yaw_deg: 210.0,
             speed_ms: -1.0, v_in: 48.2, temp_mos: 35.0, fault_code: 2,
         };
-        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((-12.5, true)), autocenter: None };
+        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((-12.5, true)), autocenter: None, gps: None };
         let fig = vehicle::VehicleFigures { percent: 50.0, charging: Some(true), power_w: 120.0, wh_per_km: Some(90.0), range_km: Some(13.3) };
         let sig = router::RouterSignal { rssi_dbm: Some(-71), info: Some("4G Telia".into()) };
         let s = build_status(&car_client_link::LinkStatus::default(), &t, &[90, 87], Some(fig), Some(sig), 25.0);
@@ -633,11 +643,23 @@ mod tests {
         assert_eq!(s.battery_charging, Some(true));
         assert_eq!(s.rssi_dbm, Some(-71));
         // Vinkelgivaren säger FEL: ingen styrvinkel alls.
-        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((0.0, false)), autocenter: None };
+        let t = car_client_link::Telemetry { board: Some(board), vescs: vec![], steering: Some((0.0, false)), autocenter: None, gps: None };
         let s = build_status(&car_client_link::LinkStatus::default(), &t, &[], None, None, 25.0);
         assert_eq!(s.steering_deg, None);
         assert_eq!(s.steering_percent, None);
         assert_eq!(s.battery_percent, None);
+        assert_eq!((s.lat, s.gps_fix), (None, false));
+        assert_eq!(s.heading_deg, Some(300.0)); // yaw 210° -> kompass 300°
+        // Färsk GPS-position följer med; en gammal gör det inte.
+        let pos = vesc_can::GpsPosition { lat: 59.8386, lon: 17.789, quality: 4, sats: 17 };
+        let mut t = t;
+        t.gps = Some((pos, tokio::time::Instant::now()));
+        let s = build_status(&car_client_link::LinkStatus::default(), &t, &[], None, None, 25.0);
+        assert_eq!((s.lat, s.lon, s.gps_quality, s.gps_sats, s.gps_fix), (Some(59.8386), Some(17.789), Some(4), Some(17), true));
+        t.gps = tokio::time::Instant::now().checked_sub(Duration::from_secs(10)).map(|at| (pos, at));
+        assert!(t.gps.is_some());
+        let s = build_status(&car_client_link::LinkStatus::default(), &t, &[], None, None, 25.0);
+        assert_eq!((s.lat, s.gps_quality, s.gps_fix), (None, None, false));
     }
 
     #[test]

@@ -208,6 +208,66 @@ pub fn parse_state_reply(payload: &[u8]) -> Option<BoardState> {
     })
 }
 
+/// `CMD_SEND_NMEA_RADIO` (63): styrkortet skickar självmant vidare de NMEA-rader
+/// från GPS-mottagaren som det själv använder (`gps_send_nmea`, på som standard).
+pub const CMD_SEND_NMEA_RADIO: u8 = 63;
+
+/// Position ur en GGA-rad.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GpsPosition {
+    pub lat: f64,
+    pub lon: f64,
+    /// 1 = vanlig GPS, 2 = DGPS, 4 = RTK Fix, 5 = RTK Float.
+    pub quality: u8,
+    pub sats: u8,
+}
+
+/// Tolka ett NMEA-paket från styrkortet. Bara GGA-rader med giltig position
+/// (kvalitet > 0) och rätt kontrollsumma ger ett värde.
+pub fn parse_nmea_gga(payload: &[u8]) -> Option<GpsPosition> {
+    let [_id, CMD_SEND_NMEA_RADIO, text @ ..] = payload else { return None };
+    let rad = std::str::from_utf8(text).ok()?.trim();
+    let rad = rad.strip_prefix('$')?;
+    let (data, summa) = rad.split_once('*')?;
+    let vantad = u8::from_str_radix(summa.get(..2)?, 16).ok()?;
+    if data.bytes().fold(0u8, |a, b| a ^ b) != vantad {
+        return None;
+    }
+    let f: Vec<&str> = data.split(',').collect();
+    if f.len() < 8 || f[0].len() != 5 || !f[0].ends_with("GGA") {
+        return None;
+    }
+    // ddmm.mmmm / dddmm.mmmm -> grader.
+    let grader = |v: &str, grad_siffror: usize| -> Option<f64> {
+        let g: f64 = v.get(..grad_siffror)?.parse().ok()?;
+        let m: f64 = v.get(grad_siffror..)?.parse().ok()?;
+        (m < 60.0).then_some(g + m / 60.0)
+    };
+    let quality: u8 = f[6].parse().ok()?;
+    if quality == 0 {
+        return None;
+    }
+    let mut lat = grader(f[2], 2)?;
+    let mut lon = grader(f[4], 3)?;
+    match f[3] {
+        "N" => {}
+        "S" => lat = -lat,
+        _ => return None,
+    }
+    match f[5] {
+        "E" => {}
+        "W" => lon = -lon,
+        _ => return None,
+    }
+    Some(GpsPosition { lat, lon, quality, sats: f[7].parse().unwrap_or(0) })
+}
+
+/// Styrkortets `yaw` (0 = rakt österut, växer medurs — se `pos.c`) som
+/// kompasskurs (0 = norr, 90 = öster), 0–360.
+pub fn heading_from_yaw(yaw_deg: f32) -> f32 {
+    (yaw_deg + 90.0).rem_euclid(360.0)
+}
+
 /// VESC:ns felkod (`mc_fault_code` i firmwarens datatypes.h) i klartext.
 pub fn fault_text(code: u8) -> Option<String> {
     let s = match code {
@@ -402,6 +462,48 @@ mod tests {
         assert!((st.yaw_deg - 123.0).abs() < 1e-4);
         assert_eq!(parse_state_reply(&p[..60]), None); // för kort
         assert_eq!(parse_state_reply(&[4, 140]), None);
+    }
+
+    fn nmea(rad: &str) -> Vec<u8> {
+        let summa = rad.bytes().fold(0u8, |a, b| a ^ b);
+        let mut p = vec![4, CMD_SEND_NMEA_RADIO];
+        p.extend(format!("${rad}*{summa:02X}\r\n").bytes());
+        p
+    }
+
+    #[test]
+    fn gga_tolkas() {
+        // Lövsta, RTK Fix, 17 satelliter.
+        let p = parse_nmea_gga(&nmea("GNGGA,101530.00,5950.3192076,N,01747.3408068,E,4,17,0.6,25.1,M,24.5,M,1.0,0000")).unwrap();
+        assert!((p.lat - 59.838653460).abs() < 1e-8, "{}", p.lat);
+        assert!((p.lon - 17.789013447).abs() < 1e-8, "{}", p.lon);
+        assert_eq!((p.quality, p.sats), (4, 17));
+        // Syd/väst blir negativt.
+        let p = parse_nmea_gga(&nmea("GPGGA,1,3330.0,S,07030.0,W,1,08,1.0,5,M,0,M,,")).unwrap();
+        assert!((p.lat + 33.5).abs() < 1e-9 && (p.lon + 70.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn gga_utan_position_eller_trasig_ger_inget() {
+        // Ingen position (kvalitet 0, tomma fält) — som inomhus.
+        assert_eq!(parse_nmea_gga(&nmea("GNGGA,101530.00,,,,,0,00,99.99,,,,,,")), None);
+        // Annan radtyp.
+        assert_eq!(parse_nmea_gga(&nmea("GNRMC,101530.00,A,5950.3192076,N,01747.3408068,E,0.0,,261126,,,A")), None);
+        // Fel kontrollsumma.
+        let mut p = nmea("GNGGA,101530.00,5950.3192076,N,01747.3408068,E,4,17,0.6,25.1,M,24.5,M,1.0,0000");
+        p[19] = b'4';
+        assert_eq!(parse_nmea_gga(&p), None);
+        // Andra paket.
+        assert_eq!(parse_nmea_gga(&[4, CMD_GET_STATE, 1, 2]), None);
+        assert_eq!(parse_nmea_gga(&[4, CMD_SEND_NMEA_RADIO]), None);
+    }
+
+    #[test]
+    fn kurs_fran_yaw() {
+        assert_eq!(heading_from_yaw(0.0), 90.0); // rakt österut
+        assert_eq!(heading_from_yaw(-90.0), 0.0); // norrut
+        assert_eq!(heading_from_yaw(90.0), 180.0);
+        assert_eq!(heading_from_yaw(-180.0), 270.0);
     }
 
     #[test]

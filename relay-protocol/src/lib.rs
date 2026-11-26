@@ -192,6 +192,23 @@ pub struct StatusUpdate {
     pub pitch_deg: Option<f32>,
     #[serde(default)]
     pub yaw_deg: Option<f32>,
+    /// Robotens position (grader, WGS84) från GPS-mottagaren, för kartan i
+    /// Robotstyrning. Saknas när mottagaren inte har någon position eller den är
+    /// äldre än några sekunder.
+    #[serde(default)]
+    pub lat: Option<f64>,
+    #[serde(default)]
+    pub lon: Option<f64>,
+    /// Positionens kvalitet enligt NMEA GGA: 1 = vanlig GPS, 2 = DGPS,
+    /// 4 = RTK Fix, 5 = RTK Float.
+    #[serde(default)]
+    pub gps_quality: Option<u8>,
+    /// Antal satelliter i positionen.
+    #[serde(default)]
+    pub gps_sats: Option<u8>,
+    /// Kurs som kompassriktning (0 = norr, 90 = öster), räknad från `yaw_deg`.
+    #[serde(default)]
+    pub heading_deg: Option<f32>,
     /// Aktuell felkod från styrkortet/VESC i klartext (t.ex. "Underspänning").
     #[serde(default)]
     pub fault_text: Option<String>,

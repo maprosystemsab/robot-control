@@ -16,3 +16,6 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 directories = "5"        # var vi sparar "tidigare anslutna robotar"
 openh264 = "0.9.8"
+# Kartan i LOS-läge: hämta kartbilder (https) och avkoda dem.
+ureq = "2"
+image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }

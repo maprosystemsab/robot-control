@@ -13,6 +13,7 @@
 //! ```bash
 //! # Terminal 1: låtsas-roboten, lyssnar på alla gränssnitt port 9000
 //! cargo run -p mock-robotd -- --bind 0.0.0.0:9000
+//! # med --kor-runt kör låtsas-roboten själv i en ring (kartan i LOS-läge utan dosa)
 //!
 //! # Terminal 2: klienten
 //! cargo run -p robotstyrning
@@ -38,6 +39,8 @@ struct AppState {
     driver_connected: Arc<Mutex<bool>>,
     latest_throttle: Arc<Mutex<f32>>,
     latest_steering: Arc<Mutex<f32>>,
+    /// `--kor-runt`: roboten kör själv i en ring när ingen gasar (för att se kartan utan dosa).
+    kor_runt: bool,
 }
 
 #[tokio::main]
@@ -52,7 +55,10 @@ async fn main() {
     println!("Anslut med klienten mot den här maskinens IP (t.ex. 127.0.0.1 lokalt, eller VPN-IP:n om ni testar över WireGuard).");
     println!();
 
-    let state = AppState::default();
+    let state = AppState { kor_runt: args.iter().any(|a| a == "--kor-runt"), ..Default::default() };
+    if state.kor_runt {
+        println!("--kor-runt: roboten kör själv i en ring (kartan i LOS-läge).");
+    }
 
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -120,16 +126,27 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
     let mut last_msg_at = Instant::now();
     let start = Instant::now();
     let mut stale_check = tokio::time::interval(Duration::from_secs(1));
+    // Påhittad position för kartan: startar i Alunda och rör sig med gas och styrning.
+    let (mut lat, mut lon, mut heading) = (60.06314934_f64, 18.07893415_f64, 45.0_f32);
 
     loop {
         tokio::select! {
             _ = status_tick.tick() => {
-                let throttle = *state.latest_throttle.lock().await;
+                let mut throttle = *state.latest_throttle.lock().await;
+                let mut steering = *state.latest_steering.lock().await;
+                if state.kor_runt && throttle.abs() < 0.05 {
+                    (throttle, steering) = (0.4, 0.25);
+                }
                 let target_speed = throttle * 15.0;
                 speed_kmh += (target_speed - speed_kmh) * 0.3;
                 battery_percent = (battery_percent - 0.01).max(0.0);
 
-                let steering = *state.latest_steering.lock().await;
+                // 0,5 s per varv: sväng i takt med farten, flytta längs kursen.
+                let meter = (speed_kmh / 3.6 * 0.5) as f64;
+                heading = (heading + steering * 25.0 * meter as f32 / 1.5).rem_euclid(360.0);
+                let kurs = (heading as f64).to_radians();
+                lat += meter * kurs.cos() / 111_320.0;
+                lon += meter * kurs.sin() / (111_320.0 * lat.to_radians().cos());
                 let status = StatusUpdate {
                     speed_kmh: Some(speed_kmh.abs()),
                     battery_percent: Some(battery_percent),
@@ -155,6 +172,11 @@ async fn handle_socket(socket: WebSocket, state: AppState) {
                     signal_info: Some("4G Telia · RSRP −95 dBm · SINR 12 dB".to_string()),
                     estop: None,
                     autocenter: Some(1),
+                    lat: Some(lat),
+                    lon: Some(lon),
+                    gps_quality: Some(4),
+                    gps_sats: Some(17),
+                    heading_deg: Some(heading),
                     ..Default::default()
                 };
                 let mut status = status;

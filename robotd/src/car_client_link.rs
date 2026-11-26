@@ -137,6 +137,8 @@ pub struct Telemetry {
     pub steering: Option<(f32, bool)>,
     /// Autocentreringens läge ur samma svar (firmware 30.18), se `StatusUpdate::autocenter`.
     pub autocenter: Option<u8>,
+    /// Senaste GPS-positionen (ur styrkortets NMEA-rader) och när den kom.
+    pub gps: Option<(vesc_can::GpsPosition, Instant)>,
 }
 
 /// Länkens läge, för loggar, OLED och klientens statusrad.
@@ -432,6 +434,8 @@ async fn session(
                         ch.telemetry.send_modify(|t| t.vescs = entries);
                     } else if let Some(state) = vesc_can::parse_state_reply(&pkt) {
                         ch.telemetry.send_modify(|t| t.board = Some(state));
+                    } else if let Some(pos) = vesc_can::parse_nmea_gga(&pkt) {
+                        ch.telemetry.send_modify(|t| t.gps = Some((pos, Instant::now())));
                     } else if let Some(angle) = vesc_can::parse_angle_printf(&pkt) {
                         angle_unanswered = 0;
                         let auto = vesc_can::parse_autocenter_printf(&pkt);
