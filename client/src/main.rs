@@ -391,6 +391,10 @@ impl App {
         {
             self.activated = false;
         }
+        // Roboten vägrar köra (styrkortet uppdateras): lås, och säg varför vid AKTIVERA.
+        if self.net.fresh_status().is_some_and(|st| st.kor_sparr.is_some()) {
+            self.activated = false;
+        }
         // Esc låser också, snabbare än att sikta på knappen.
         if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
             self.activated = false;
@@ -867,6 +871,9 @@ impl App {
         };
         if let Some(text) = hud::estop_text(status.estop.as_deref()) {
             return Some(text.to_string());
+        }
+        if let Some(text) = &status.kor_sparr {
+            return Some(text.clone());
         }
         if let Some(err) = &status.last_error {
             if status.vescs_responding.is_empty() {

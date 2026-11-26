@@ -102,7 +102,7 @@ pub fn starta(kalla: String, variant: Option<String>, mapp: PathBuf, fw: &str) -
             }
             if ror_sig {
                 sparrar.push("Roboten rör sig. Den ska stå helt still.".into());
-            } else if stilla_sedan.map_or(true, |s| s.elapsed() < Duration::from_secs(3)) {
+            } else if stilla_sedan.is_none_or(|s| s.elapsed() < Duration::from_secs(3)) {
                 sparrar.push("Roboten har inte stått still tillräckligt länge än.".into());
             }
             let andra = k.anslutna.load(Ordering::Relaxed).saturating_sub(1);

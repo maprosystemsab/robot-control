@@ -417,6 +417,12 @@ async fn main() {
                         let _ = respond_to.send(RobotMessage::VescTestSpin { can_id, ok: false, message: relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string() }).await;
                     }
                     RobotRequest::SetAutocenter { .. } if fw_pagar() => {}
+                    // Skanningen pingar VESC:arna genom styrkortet: inte heller den under uppdateringen.
+                    // Den tomma listan gör att Inställningar inte står kvar i "Skannar...".
+                    RobotRequest::ScanVescBus { respond_to } if fw_pagar() => {
+                        let _ = respond_to.send(RobotMessage::FirmwareSvar { ok: false, text: relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string() }).await;
+                        let _ = respond_to.send(RobotMessage::VescBusResult(Vec::new())).await;
+                    }
                     RobotRequest::ScanVescBus { respond_to } => {
                         // Egen uppgift med egen kortvarig anslutning: en skanning
                         // kan ta flera sekunder och ska inte blockera huvudloopen.

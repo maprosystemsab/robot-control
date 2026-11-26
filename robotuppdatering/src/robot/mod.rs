@@ -47,6 +47,11 @@ const FORUTSATTNINGAR_GALLER: Duration = Duration::from_secs(3);
 /// Så många säkerhetskopior sparas.
 const SPARADE_KOPIOR: usize = 3;
 
+/// Filen som finns medan kortet uppdateras (under `rot`, alltså `/run/…`). Lägesbytet på
+/// robotar med båda lägena (`byt_lage.sh`) vägrar byta medan den finns: bytet skulle stoppa
+/// robotd, och openocd med den, mitt i skrivningen. /run töms vid omstart.
+pub const PAGARFIL: &str = "run/robotuppdatering-pagar";
+
 /// Komponenter som krav kan gälla, och filen som visar att komponenten finns på roboten.
 const KANDA_KOMPONENTER: &[(&str, &str)] = &[
     ("robotd", "usr/local/bin/robotd"),
@@ -277,6 +282,19 @@ impl Delat {
         }
     }
 
+    /// Sätter eller tar bort [`PAGARFIL`].
+    fn pagarfil(&self, pa: bool) {
+        let fil = self.inst.rot.join(PAGARFIL);
+        if pa {
+            if let Some(mapp) = fil.parent() {
+                let _ = std::fs::create_dir_all(mapp);
+            }
+            let _ = std::fs::write(&fil, b"");
+        } else {
+            let _ = std::fs::remove_file(&fil);
+        }
+    }
+
     fn satt_lage(&self, lage: FirmwareLage) {
         let mut i = self.inre.lock().unwrap();
         i.sparat.lage = lage;
@@ -468,6 +486,7 @@ impl Delat {
             spara(&self.inst.mapp, &i.sparat);
             v
         };
+        self.pagarfil(true);
         let utfall = self.uppdatera_inre(version, kort);
         let mut i = self.inre.lock().unwrap();
         i.erbjudande = None;
@@ -479,6 +498,7 @@ impl Delat {
             }
         };
         spara(&self.inst.mapp, &i.sparat);
+        self.pagarfil(false);
     }
 
     fn uppdatera_inre(&self, version: FwVersion, kort: &mut dyn Kortet) -> Result<(String, Vec<String>), Avbrott> {
@@ -606,6 +626,7 @@ impl Delat {
             spara(&self.inst.mapp, &i.sparat);
             (v, dump, fran)
         };
+        self.pagarfil(true);
         let hinder = self.alla_hinder(false);
         let lage = if !hinder.is_empty() {
             FirmwareLage::Misslyckad { version: version.to_string(), text: format!("Återställningen gjordes inte, roboten är inte redo: {}", hinder.join(" ")), aterstalld: Some(false), kan_aterstallas: true }
@@ -615,6 +636,7 @@ impl Delat {
             FirmwareLage::Misslyckad { version: version.to_string(), text: besked, aterstalld: Some(gick), kan_aterstallas: !gick }
         };
         self.satt_lage(lage);
+        self.pagarfil(false);
     }
 }
 
@@ -641,6 +663,8 @@ impl Uppdaterare {
         let sparat = ladda(&inst.mapp);
         spara(&inst.mapp, &sparat);
         let delat = Arc::new(Delat { inre: Mutex::new(Inre { sparat, bild: Lagesbild::default(), bild_nar: None, erbjudande: None, klara: 0 }), inst, forutsattningar: Mutex::new(None) });
+        // En fil som blivit kvar efter att robotd avbrutits mitt i gäller inte längre.
+        delat.pagarfil(false);
         let (tx, rx) = mpsc::channel();
         let d = delat.clone();
         std::thread::Builder::new()

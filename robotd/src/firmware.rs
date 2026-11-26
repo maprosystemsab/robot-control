@@ -164,7 +164,7 @@ pub fn sparrar(l: &Lage) -> Vec<String> {
     }
     if l.styr || l.fart_ms.is_some_and(|v| v.abs() > 0.05) {
         s.push("Roboten rör sig. Den ska stå helt still.".into());
-    } else if l.stilla.map_or(true, |t| t < STILLA_MINST) {
+    } else if l.stilla.is_none_or(|t| t < STILLA_MINST) {
         s.push("Roboten har inte stått still tillräckligt länge än.".into());
     }
     if l.andra_anslutna > 0 {

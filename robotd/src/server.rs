@@ -296,10 +296,16 @@ async fn handle_socket(
                             Ok(ClientMessage::Control(cmd)) if is_driver => {
                                 let _ = state.control_tx.send(cmd).await;
                             }
-                            Ok(ClientMessage::ScanVescBus) => {
+                            // Skanningen skickar en ping på CAN-bussen genom styrkortet: bara föraren,
+                            // som de andra kommandona till kortet (skriv, provsnurr, autocentrering).
+                            Ok(ClientMessage::ScanVescBus) if is_driver => {
                                 let _ = state.request_tx.send(RobotRequest::ScanVescBus {
                                     respond_to: out_tx.clone(),
                                 }).await;
+                            }
+                            Ok(ClientMessage::ScanVescBus) => {
+                                tracing::warn!("Icke-förare försökte skanna CAN-bussen, ignoreras.");
+                                let _ = out_tx.send(RobotMessage::VescBusResult(Vec::new())).await;
                             }
                             Ok(ClientMessage::SaveVescProfile(profile)) => {
                                 let _ = state.request_tx.send(RobotRequest::SaveVescProfile {

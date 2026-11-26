@@ -95,7 +95,7 @@ impl Rigg {
         std::fs::write(
             &skript,
             format!(
-                "#!/bin/sh\nD='{}'\necho \"$1\" >> \"$D/anrop\"\ncase \"$1\" in\n\
+"#!/bin/sh\nD='{}'\necho \"$1\" >> \"$D/anrop\"\n[ -e \"$D/langsam\" ] && sleep 0.4\ncase \"$1\" in\n\
                  dumpa) [ -e \"$D/fel_dump\" ] && {{ echo 'kortet svarar inte'; exit 1; }}; if [ -e \"$D/tom_dump\" ]; then head -c 1048576 /dev/zero > \"$2\"; else cp \"$D/kortet.bin\" \"$2\"; fi ;;\n\
                  skriv) cp \"$D/version\" \"$D/forra\"; [ -e \"$D/fel_skriv\" ] && {{ echo 'Error: verify failed'; exit 1; }}; if [ -e \"$D/fel_version\" ]; then echo 30.1 > \"$D/version\"; elif [ -e \"$D/dott_kort\" ]; then rm \"$D/version\"; else tail -c +21 \"$2\" > \"$D/version\"; fi ;;\n\
                  aterstall) [ -e \"$D/fel_aterstall\" ] && {{ echo 'kortet svarar inte'; exit 1; }}; cp \"$D/forra\" \"$D/version\" ;;\n\
@@ -216,7 +216,17 @@ fn hela_varvet() {
     let r = Rigg::ny("varv", Some(VARIANT));
     let s = r.u.status();
     assert_eq!((s.kortversion.as_deref(), s.variant.as_deref(), &s.lage, s.sparrar.is_empty()), (Some("30.32"), Some(VARIANT), &FirmwareLage::Vilar, true));
-    assert_eq!(r.uppdatera(), FirmwareLage::Klar { version: "30.33".into(), fran: "30.32".into(), anmarkningar: vec![] });
+    // Medan kortet uppdateras finns filen som hindrar lägesbytet; efteråt är den borta.
+    assert!(!r.d.join("rot").join(PAGARFIL).exists());
+    r.satt("langsam");
+    assert!(matches!(r.sok(), FirmwareLage::NyFinns { .. }));
+    let fore = r.u.klara_order();
+    r.u.uppdatera("30.33").unwrap();
+    r.tills(|s| s.lage.pagar());
+    assert!(r.d.join("rot").join(PAGARFIL).exists());
+    assert!(r.u.pagar() && r.u.uppdatera("30.33").is_err());
+    assert_eq!(r.vanta(fore), FirmwareLage::Klar { version: "30.33".into(), fran: "30.32".into(), anmarkningar: vec![] });
+    assert!(!r.d.join("rot").join(PAGARFIL).exists());
     assert_eq!(r.kortversion(), "30.33");
     assert_eq!(r.anrop(), "dumpa skriv");
     assert!(r.kort.sparade.load(Ordering::SeqCst));

@@ -17,6 +17,8 @@ import base64, functools, hashlib, http.server, json, os, shutil, socket, struct
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PAGAR = 'Styrkortet uppdateras'
 CMD_GET_STATE, CMD_SET_MAIN_CONFIG, CMD_GET_MAIN_CONFIG, CMD_RC_CONTROL_ADV = 120, 77, 78, 125
+# VESC-ping på CAN (141), provsnurr (142) och terminalkommandon (1): ska aldrig nå kortet under en uppdatering.
+ANDRA_KOMMANDON = (141, 142, 1)
 
 
 # --- paket som Car_Client och styrkortet: [2][längd][innehåll][CRC16][3] ---
@@ -65,6 +67,7 @@ class Kort:
         self.mapp, self.car_id = mapp, car_id
         self.installningar = bytes(range(256)) + b'robant\0' + bytes(200)
         self.korvarden = []          # (tid, värde) för körkommandon som inte är noll
+        self.andra = []              # kommandon utöver tillstånd, inställningar och körvärden (ping, provsnurr …)
         self.srv = socket.socket()
         self.srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.srv.bind(('127.0.0.1', 0))
@@ -115,6 +118,8 @@ class Kort:
                             s.sendall(rama_in(bytes([self.car_id, CMD_SET_MAIN_CONFIG])))
                         elif p[1] == CMD_RC_CONTROL_ADV and len(p) >= 7 and p[3:7] != b'\0\0\0\0':
                             self.korvarden.append((time.time(), p[2]))
+                        elif p[1] in ANDRA_KOMMANDON:
+                            self.andra.append(p[1])
             except OSError:
                 pass
             finally:
@@ -236,12 +241,14 @@ class Robot:
         self.kort = Kort(self.mapp)
         cfg = {'robot_id': 'prov', 'bind_addr': f'127.0.0.1:{port}', 'car_client_addr': f'127.0.0.1:{self.kort.port}', 'car_client_id': 4,
                'video': {'enabled': False},
+               # Ingen vinkelgivare: annars frågar länken kortet om vinkeln med ett terminalkommando varje sekund.
+               'vehicle': {'steering_sensor': False},
                'firmware': {'variant': variant, 'kalla': srv.adress, 'flashkommando': f'{self.mapp}/flasha.sh', 'mapp': f'{self.mapp}/robotuppdatering'}}
         json.dump(cfg, open(f'{self.mapp}/config.json', 'w'))
         self.proc = subprocess.Popen([f'{ROOT}/target/debug/robotd'], env={**os.environ, 'ROBOTD_CONFIG': f'{self.mapp}/config.json', 'RUST_LOG': 'info'},
                                      stdout=open(f'{self.mapp}/robotd.log', 'w'), stderr=subprocess.STDOUT)
         self.port = port
-        self.last, self.svar = {}, []
+        self.last, self.svar, self.skanningar, self.aktuatorfel = {}, [], [], []
         self.s = self.anslut()
 
     def anslut(self, tittare=False):
@@ -263,6 +270,10 @@ class Robot:
                 self.last.update(m['Status'])
             if 'FirmwareSvar' in m:
                 self.svar.append(m['FirmwareSvar'])
+            if 'VescBusResult' in m:
+                self.skanningar.append(m['VescBusResult'])
+            if 'ActuatorError' in m:
+                self.aktuatorfel.append(m['ActuatorError'])
             if until and until():
                 return True
         return False
@@ -346,7 +357,8 @@ def main():
         r.run(2.0, until=lambda: any('anslutna' in s for s in r.fw().get('sparrar', [])))
         check('en till ansluten syns som spärr', any('anslutna' in s for s in r.fw().get('sparrar', [])), r.fw().get('sparrar'))
         ws_send(tittare, {'Firmware': {'Uppdatera': {'version': '30.33'}}})
-        svar = None
+        ws_send(tittare, 'ScanVescBus')
+        svar, skanning = None, None
         for _ in range(40):
             try:
                 m = ws_recv(tittare)
@@ -354,8 +366,12 @@ def main():
                 continue
             if m and 'FirmwareSvar' in m:
                 svar = m['FirmwareSvar']
+            if m and 'VescBusResult' in m:
+                skanning = m['VescBusResult']
+            if svar and skanning is not None:
                 break
         check('bara föraren får begära uppdatering', svar and not svar['ok'], svar)
+        check('en tittare får inte skanna CAN-bussen (tomt svar, inget till kortet)', skanning == [] and not r.kort.andra, (skanning, r.kort.andra))
         tittare.close()
         check('spärren släpper när den andra kopplat från', r.redo(), r.fw().get('sparrar'))
         check('bara den erbjudna versionen går att begära', r.uppdatera('30.34')[0] == 'Nej')
@@ -370,6 +386,14 @@ def main():
         r.run(2.5, control(0.6, True))
         check('körningen är spärrad under skrivningen', PAGAR in (r.last.get('kor_sparr') or ''), r.last.get('kor_sparr'))
         check('inga körvärden når kortet under skrivningen', len(r.kort.korvarden) == fore, r.kort.korvarden[fore:])
+        # Inget annat som går till kortet släpps igenom under uppdateringen.
+        r.svar.clear()
+        for begaran in ('ScanVescBus', 'ReadActuators', {'TestSpinVesc': {'can_id': 28}}, {'SetAutocenter': {'on': True}}):
+            ws_send(r.s, begaran)
+        r.run(2.0, until=lambda: r.skanningar and r.aktuatorfel and r.svar)
+        check('CAN-skanning avvisas under uppdateringen', r.skanningar == [[]] and any(PAGAR in s['text'] for s in r.svar), (r.skanningar, r.svar))
+        check('läsning av aktuatorerna avvisas under uppdateringen', any(PAGAR in e for e in r.aktuatorfel), r.aktuatorfel)
+        check('skanningen och provsnurret nådde aldrig kortet', not r.kort.andra, r.kort.andra)
         klar = r.vanta('Klar', 'Misslyckad', secs=90)
         check('klart med ny version', klar == ('Klar', {'version': '30.33', 'fran': '30.32', 'anmarkningar': []}), klar)
         r.run(3.0, until=lambda: r.fw().get('kortversion') == '30.33')
