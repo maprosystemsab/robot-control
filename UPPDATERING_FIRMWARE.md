@@ -28,6 +28,13 @@ första provet på ett riktigt kort) står i SentinAnts dokument, eftersom koden
   `lagesknapp-di2` och vägrar om de säger något annat.
 - **Det äldre styrkortet** går bara att uppdatera med en ST-Link ansluten i roboten; utan
   den säger robotd det och gör ingenting.
+- **Rättigheter:** robotd körs som root (systemd-tjänsten, `User=root`), samma som när
+  `flash_styrkort.sh` kör openocd med sudo. Är den inte root, eller saknas openocd, syns
+  det som en spärr i klienten i stället för att upptäckas mitt i uppdateringen.
+- **Efter skrivningen** ska kortet svara med rätt version, och (variant med lägesknapp) en
+  rapport om lägesknappen ska komma från den nya firmwaren, annars skrivs den förra
+  tillbaka. Nödstoppet på DI1 går inte att se här (Car_Client skickar ett eget paket för
+  nödstoppet på Pi:n), så för det gäller varianten och märkfilerna.
 - **Spärrar i robotd:** AKTIVERA av, roboten stilla i 3 s, ingen annan ansluten (robotd
   håller Car_Client medan föraren är ansluten, så RControlStation kan inte vara inne
   samtidigt), batteri över 20 %, aldrig bakåt i version. Under skrivningen skickas inga

@@ -96,8 +96,9 @@ impl Rigg {
             &skript,
             format!(
 "#!/bin/sh\nD='{}'\necho \"$1\" >> \"$D/anrop\"\n[ -e \"$D/langsam\" ] && sleep 0.4\ncase \"$1\" in\n\
-                 dumpa) [ -e \"$D/fel_dump\" ] && {{ echo 'kortet svarar inte'; exit 1; }}; if [ -e \"$D/tom_dump\" ]; then head -c 1048576 /dev/zero > \"$2\"; else cp \"$D/kortet.bin\" \"$2\"; fi ;;\n\
+                 dumpa) [ -e \"$D/stannar_vid_dump\" ] && {{ mv \"$D/version\" \"$D/stoppad\"; echo 'Error: läsningen avbröts'; exit 1; }}; [ -e \"$D/tyst_efter_dump\" ] && cp \"$D/version\" \"$D/stoppad\"; [ -e \"$D/fel_dump\" ] && {{ echo 'kortet svarar inte'; exit 1; }}; if [ -e \"$D/tom_dump\" ]; then head -c 1048576 /dev/zero > \"$2\"; else cp \"$D/kortet.bin\" \"$2\"; fi ;;\n\
                  skriv) cp \"$D/version\" \"$D/forra\"; [ -e \"$D/fel_skriv\" ] && {{ echo 'Error: verify failed'; exit 1; }}; if [ -e \"$D/fel_version\" ]; then echo 30.1 > \"$D/version\"; elif [ -e \"$D/dott_kort\" ]; then rm \"$D/version\"; else tail -c +21 \"$2\" > \"$D/version\"; fi ;;\n\
+                 starta) [ -e \"$D/startar_inte\" ] && exit 1; [ -e \"$D/stoppad\" ] && mv \"$D/stoppad\" \"$D/version\" ;;\n\
                  aterstall) [ -e \"$D/fel_aterstall\" ] && {{ echo 'kortet svarar inte'; exit 1; }}; cp \"$D/forra\" \"$D/version\" ;;\n\
                  esac\n",
                 d.display()
@@ -112,7 +113,12 @@ impl Rigg {
         let kort = Arc::new(Kortprov::default());
         let inst = Installning { kalla, variant: variant.map(str::to_string), mapp: d.join("tillstand"), flashkommando: Some(skript), rot: d.join("rot") };
         let u = Uppdaterare::starta(inst, Box::new(Lats(kort.clone())));
-        let bild = Arc::new(Mutex::new(Lagesbild { nodstopp_hors: Some(true), ..Default::default() }));
+        // Som SentinAnts robotd: båda tillvalen går att se; kortet rapporterar nödstoppet men ingen lägesknapp.
+        let bild = Arc::new(Mutex::new(Lagesbild {
+            nodstopp: Tillval { synligt: true, hors: Some(true), senast: None },
+            lagesknapp: Tillval { synligt: true, hors: Some(false), senast: None },
+            ..Default::default()
+        }));
         let r = Rigg { d, filer: rigg_filer, kort, u, bild };
         r.publicera(10, "30.33", VARIANT, &elf("30.33"), "");
         r.robotd();
@@ -143,8 +149,10 @@ impl Rigg {
                 let mut b = bild.lock().unwrap().clone();
                 b.kortversion = version;
                 b.kort_svarade = version.map(|_| nar);
-                if b.nodstopp_hors == Some(true) {
-                    b.nodstopp_hordes = Some(nar);
+                for t in [&mut b.nodstopp, &mut b.lagesknapp] {
+                    if t.hors == Some(true) {
+                        t.senast = Some(nar);
+                    }
                 }
                 {
                     let mut i = delat.inre.lock().unwrap();
@@ -343,7 +351,7 @@ fn varianten_gissas_aldrig() {
     for (namn, variant, del) in [("ingen", None, "inte angiven"), ("skrap", Some("mp101-robant-nodstop"), "inte en giltig variant"), ("annan", Some("mp101-robant"), "ingen fil för den här robotens kort")] {
         let r = Rigg::ny(&format!("variant-{namn}"), variant);
         if variant == Some("mp101-robant") {
-            r.bild.lock().unwrap().nodstopp_hors = Some(false);
+            r.bild.lock().unwrap().nodstopp.hors = Some(false);
             std::thread::sleep(Duration::from_millis(150));
         }
         assert!(matches!(r.sok(), FirmwareLage::Hinder { text } if text.contains(del)), "{namn}");
@@ -411,7 +419,95 @@ fn utan_sakerhetskopia_skrivs_ingenting() {
     r.satt("tom_dump");
     let (text, ..) = misslyckad(&r.uppdatera());
     assert!(text.contains("ser inte ut som ett program"), "{text}");
-    assert_eq!((r.kortversion().as_str(), r.anrop().as_str()), ("30.32", "dumpa dumpa"));
+    // Efter varje utläsning som inte godkändes gjordes ett försök att starta kortet.
+    assert_eq!((r.kortversion().as_str(), r.anrop().as_str()), ("30.32", "dumpa starta dumpa starta"));
+}
+
+#[test]
+fn misslyckad_utlasning_lamnar_inte_kortet_stoppat() {
+    // Utläsningen stannar processorn och går sedan fel: kortet är tyst. Ingenting har
+    // skrivits, och ett försök görs att starta det igen.
+    let r = Rigg::ny("stoppat", Some(VARIANT));
+    r.satt("stannar_vid_dump");
+    let (text, aterstalld, kan) = misslyckad(&r.uppdatera());
+    assert!(text.contains("gick inte att säkerhetskopiera") && text.contains("Ingenting har skrivits") && !text.contains("strömmen"), "{text}");
+    assert_eq!((aterstalld, kan, r.kortversion().as_str(), r.anrop().as_str()), (None, false, "30.32", "dumpa starta"));
+    // Går kortet inte att starta sägs det rakt ut vad föraren ska göra.
+    let r = Rigg::ny("stoppat-kvar", Some(VARIANT));
+    r.satt("stannar_vid_dump");
+    r.satt("startar_inte");
+    let (text, aterstalld, kan) = misslyckad(&r.uppdatera());
+    assert!(text.contains("svarar inte efteråt") && text.contains("slå av och på strömmen") && text.contains("Ingenting har skrivits"), "{text}");
+    assert_eq!((aterstalld, kan, r.anrop().as_str()), (None, false, "dumpa starta"));
+}
+
+#[test]
+fn okant_tillval_slapper_aldrig_igenom_nagot() {
+    // Före skrivningen: robotd kan se nödstoppet men har inte hunnit höra något än.
+    let r = Rigg::ny("okant-fore", Some(VARIANT));
+    assert!(matches!(r.sok(), FirmwareLage::NyFinns { .. }));
+    r.bild.lock().unwrap().nodstopp.hors = None;
+    r.tills(|s| s.sparrar.iter().any(|s| s.contains("inte hunnit se om styrkortet rapporterar nödstopp")));
+    assert!(r.u.uppdatera("30.33").unwrap_err().contains("inte hunnit se"));
+    assert_eq!(r.anrop(), "");
+
+    // Efter skrivningen: robotd vet ännu inte vad den nya firmwaren rapporterar (kortet har
+    // just startat om). Det får inte räknas som att nödstoppet finns: utan en rapport från
+    // den nya firmwaren skrivs den förra tillbaka.
+    let r = Rigg::ny("okant-efter", Some(VARIANT));
+    assert!(matches!(r.sok(), FirmwareLage::NyFinns { .. }));
+    let fore = r.u.klara_order();
+    r.u.uppdatera("30.33").unwrap();
+    let (bild, d) = (r.bild.clone(), r.d.clone());
+    std::thread::spawn(move || loop {
+        let nytt = std::fs::read_to_string(d.join("version")).is_ok_and(|v| v.trim() == "30.33");
+        bild.lock().unwrap().nodstopp.hors = if nytt { None } else { Some(true) };
+        std::thread::sleep(Duration::from_millis(10));
+    });
+    let (text, aterstalld, _) = misslyckad(&r.vanta(fore));
+    assert!(text.contains("rapporterar inte nödstoppet") && text.contains("är tillbaka"), "{text}");
+    assert_eq!((aterstalld, r.kortversion().as_str(), r.anrop().as_str()), (Some(true), "30.32", "dumpa skriv aterstall"));
+}
+
+#[test]
+fn utan_insyn_i_nodstoppet_hoppas_bara_den_kontrollen_over() {
+    // Som Robotstyrnings robotd: nödstoppets rapporter går inte att se (Car_Client skickar
+    // egna), så varianten jämförs med märkfilerna i stället. Uppdateringen går igenom.
+    let r = Rigg::ny("utan-insyn", Some(VARIANT));
+    r.bild.lock().unwrap().nodstopp = Tillval::default();
+    std::thread::sleep(Duration::from_millis(100));
+    assert_eq!(r.uppdatera(), FirmwareLage::Klar { version: "30.33".into(), fran: "30.32".into(), anmarkningar: vec![] });
+}
+
+#[test]
+fn ny_firmware_utan_lagesknapp_aterstalls() {
+    let variant = "mp101-robant-nodstopp-lagesknapp";
+    let r = Rigg::ny("lagesknapp", Some(variant));
+    r.publicera(11, "30.33", variant, &elf("30.33"), "");
+    r.bild.lock().unwrap().lagesknapp.hors = Some(true);
+    r.tills(|s| s.sparrar.is_empty());
+    assert!(matches!(r.sok(), FirmwareLage::NyFinns { .. }));
+    let fore = r.u.klara_order();
+    r.u.uppdatera("30.33").unwrap();
+    // "Den nya firmwaren" skickar inte lägesknappens paket.
+    let (bild, d) = (r.bild.clone(), r.d.clone());
+    std::thread::spawn(move || loop {
+        let nytt = std::fs::read_to_string(d.join("version")).is_ok_and(|v| v.trim() == "30.33");
+        bild.lock().unwrap().lagesknapp.hors = if nytt { None } else { Some(true) };
+        std::thread::sleep(Duration::from_millis(10));
+    });
+    let (text, aterstalld, _) = misslyckad(&r.vanta(fore));
+    assert!(text.contains("rapporterar inte lägesknappen på DI2"), "{text}");
+    assert_eq!((aterstalld, r.kortversion().as_str()), (Some(true), "30.32"));
+    // Med en firmware som rapporterar båda tillvalen går samma uppdatering igenom.
+    let r = Rigg::ny("lagesknapp-ok", Some(variant));
+    r.publicera(11, "30.33", variant, &elf("30.33"), "");
+    r.bild.lock().unwrap().lagesknapp.hors = Some(true);
+    r.tills(|s| s.sparrar.is_empty());
+    assert!(matches!(r.sok(), FirmwareLage::NyFinns { .. }));
+    let fore = r.u.klara_order();
+    r.u.uppdatera("30.33").unwrap();
+    assert!(matches!(r.vanta(fore), FirmwareLage::Klar { .. }));
 }
 
 #[test]
@@ -448,7 +544,7 @@ fn ny_firmware_utan_nodstopp_aterstalls() {
     let (bild, d) = (r.bild.clone(), r.d.clone());
     std::thread::spawn(move || loop {
         let nytt = std::fs::read_to_string(d.join("version")).is_ok_and(|v| v.trim() == "30.33");
-        bild.lock().unwrap().nodstopp_hors = Some(!nytt);
+        bild.lock().unwrap().nodstopp.hors = Some(!nytt);
         std::thread::sleep(Duration::from_millis(10));
     });
     let (text, aterstalld, _) = misslyckad(&r.vanta(fore));

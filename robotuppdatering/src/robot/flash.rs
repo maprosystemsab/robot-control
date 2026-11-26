@@ -30,7 +30,8 @@ pub enum Flashare {
     /// openocd på roboten. `rot` är filsystemets rot ("/"; annat bara i tester) och
     /// `arbetsmapp` där openocd:s inställningsfil och logg läggs.
     Openocd { kort: Kort, rot: PathBuf, arbetsmapp: PathBuf },
-    /// Ett eget kommando: `KOMMANDO dumpa FIL`, `KOMMANDO skriv ELF`, `KOMMANDO aterstall FIL`.
+    /// Ett eget kommando: `KOMMANDO dumpa FIL`, `KOMMANDO skriv ELF`, `KOMMANDO aterstall FIL`
+    /// och `KOMMANDO starta` (starta kortet efter en utläsning som gått fel).
     /// Slutkod 0 = gick bra. Används av simulatorn och vid prov.
     Kommando { program: PathBuf, arbetsmapp: PathBuf },
 }
@@ -51,6 +52,12 @@ pub fn stlink_finns(rot: &Path) -> bool {
 /// Är den här datorn en CM5 (som sitter ihop med MP101)?
 pub fn ar_cm5(rot: &Path) -> bool {
     std::fs::read(rot.join("proc/device-tree/model")).is_ok_and(|b| String::from_utf8_lossy(&b).contains("Compute Module 5"))
+}
+
+/// Kör robotd som root? openocd, gpioset och pinctrl behöver det (flashskripten kör dem
+/// med sudo). `status` är innehållet i /proc/self/status.
+fn ar_root(status: &str) -> bool {
+    status.lines().find_map(|r| r.strip_prefix("Uid:")).and_then(|r| r.split_whitespace().nth(1)).is_some_and(|euid| euid == "0")
 }
 
 /// Kör ett kommando med all utskrift till `logg`. `Err` har de sista raderna ur loggen.
@@ -113,7 +120,18 @@ impl Flashare {
                     saknas.push(format!("flashkommandot {} finns inte", program.display()));
                 }
             }
-            Flashare::Openocd { kort, rot, .. } => {
+            Flashare::Openocd { kort, rot, arbetsmapp } => {
+                // Rättigheterna: robotd installeras som root (systemd-tjänsten), och det
+                // behövs för openocd mot ST-Linken och för CM5:ans ben. Är det inte så ska det
+                // synas här, inte upptäckas mitt i säkerhetskopieringen.
+                if !ar_root(&std::fs::read_to_string("/proc/self/status").unwrap_or_default()) {
+                    saknas.push("robotens program kör inte som root och får inte skriva till styrkortet (kontakta Mapro)".into());
+                }
+                let prov = arbetsmapp.join(".skrivprov");
+                if std::fs::create_dir_all(arbetsmapp).and_then(|()| std::fs::write(&prov, b"")).is_err() {
+                    saknas.push(format!("robotens program kan inte skriva i {} (kontakta Mapro)", arbetsmapp.display()));
+                }
+                let _ = std::fs::remove_file(&prov);
                 let verktyg: &[&str] = match kort {
                     Kort::Gamla => &["openocd"],
                     Kort::Mp101 => &["openocd", "gpiodetect", "gpioset", "pinctrl"],
@@ -178,7 +196,24 @@ impl Flashare {
         }
     }
 
+    /// Startar kortet (`reset run`) utan att läsa eller skriva något. Används efter en
+    /// utläsning som gått fel: den stannar processorn först (`reset halt`), och avbryts
+    /// openocd sedan står kortet kvar stoppat fast ingenting har skrivits. På MP101 ställs
+    /// benen också tillbaka (NRST hög), som efter varje körning.
+    pub fn starta_kortet(&self) -> Result<(), String> {
+        let logg = self.logg();
+        if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&logg) {
+            let _ = std::io::Write::write_all(&mut f, "--- försöker starta styrkortet igen (reset run) ---\n".as_bytes());
+        }
+        match self {
+            Flashare::Kommando { program, .. } => kor(Command::new(program).arg("starta"), &logg, Duration::from_secs(60)),
+            Flashare::Openocd { kort, arbetsmapp, .. } => self.openocd(*kort, arbetsmapp, &["init".to_string(), "reset run".to_string(), "shutdown".to_string()]),
+        }
+    }
+
     /// Läser ut hela flashminnet till `mal` och kontrollerar att det ser ut som ett program.
+    /// Går utläsningen fel kan kortet stå kvar stoppat: den som anropar ska då försöka
+    /// [`Self::starta_kortet`].
     pub fn dumpa(&self, mal: &Path) -> Result<(), String> {
         let _ = std::fs::remove_file(mal);
         match self {
@@ -292,6 +327,15 @@ mod tester {
             std::fs::write(&f, innehall).unwrap();
             assert!(kontrollera_elf(&f).is_err(), "{namn}");
         }
+    }
+
+    #[test]
+    fn root_kanns_igen_pa_effektivt_uid() {
+        assert!(ar_root("Name:\trobotd\nUid:\t0\t0\t0\t0\nGid:\t0\t0\t0\t0\n"));
+        assert!(ar_root("Uid:\t1000\t0\t0\t0\n"));
+        assert!(!ar_root("Name:\trobotd\nUid:\t1000\t1000\t1000\t1000\n"));
+        assert!(!ar_root("Uid:\t0\t1000\t1000\t1000\n"));
+        assert!(!ar_root(""));
     }
 
     #[test]

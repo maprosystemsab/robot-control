@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use robotuppdatering::firmware::{FwVersion, Variant};
-use robotuppdatering::robot::{Installning, Installningar, Kortet, Lagesbild, Uppdaterare};
+use robotuppdatering::robot::{Installning, Installningar, Kortet, Lagesbild, Tillval, Uppdaterare};
 use serde::{Deserialize, Serialize};
 use tokio::sync::{mpsc, oneshot};
 
@@ -194,17 +194,26 @@ pub fn markfel(variant: Option<&str>, rot: &Path) -> Option<String> {
     fel("nödstopp på DI1", v.nodstopp, MARKE_NODSTOPP).or_else(|| fel("lägesknapp på DI2", v.lagesknapp, MARKE_LAGESKNAPP))
 }
 
-/// Lägesbilden till uppdateraren. `fw` är versionen och när kortets svar kom. Nödstoppets
-/// paket säger ingenting här (Car_Client skickar ett eget för nödstoppet på Pi:n), så det
-/// lämnas okänt; lägesknappens paket kommer bara från en firmware byggd med lägesknapp.
-pub fn lagesbild(fw: Option<((u8, u8), std::time::Instant)>, sparrar: Vec<String>, lagesknapp_hors: Option<bool>) -> Lagesbild {
+/// Lägesbilden till uppdateraren. `fw` är versionen och när kortets svar kom.
+///
+/// Nödstoppets paket säger ingenting här (Car_Client skickar ett eget för nödstoppet på
+/// Pi:n), så det tillvalet är inte synligt och varianten jämförs med märkfilerna i stället
+/// ([`markfel`]). Lägesknappens paket kommer bara från en firmware byggd med lägesknapp,
+/// och Car_Client skickar det vidare: `lagesknapp_senast` är när det senast kom, `moget` om
+/// kortet har svarat så länge att ett uteblivet paket betyder att firmwaren saknar knappen
+/// (före det är svaret okänt, och okänt släpper aldrig igenom något).
+pub fn lagesbild(fw: Option<((u8, u8), std::time::Instant)>, sparrar: Vec<String>, lagesknapp_senast: Option<std::time::Instant>, moget: bool) -> Lagesbild {
+    let hors = match lagesknapp_senast {
+        Some(nar) if nar.elapsed() < Duration::from_secs(4) => Some(true),
+        _ if moget => Some(false),
+        _ => None,
+    };
     Lagesbild {
         kortversion: fw.map(|((huvud, under), _)| FwVersion { huvud, under }),
         kort_svarade: fw.map(|(_, nar)| nar),
         sparrar,
-        nodstopp_hors: None,
-        nodstopp_hordes: None,
-        lagesknapp_hors,
+        nodstopp: Tillval::default(),
+        lagesknapp: Tillval { synligt: true, hors, senast: lagesknapp_senast },
     }
 }
 
@@ -258,6 +267,17 @@ mod tester {
         // Ingen eller obegriplig variant: det säger uppdateraren själv ifrån om.
         assert_eq!(markfel(None, &rot), None);
         assert_eq!(markfel(Some("skräp"), &rot), None);
+    }
+
+    #[test]
+    fn lagesknappen_ar_okand_tills_kortet_svarat_en_stund_och_nodstoppet_syns_inte() {
+        let nyss = Some(std::time::Instant::now());
+        let b = lagesbild(Some(((30, 32), std::time::Instant::now())), vec![], nyss, false);
+        assert_eq!((b.lagesknapp.synligt, b.lagesknapp.hors, b.nodstopp.synligt), (true, Some(true), false));
+        assert_eq!(lagesbild(None, vec![], None, false).lagesknapp.hors, None);
+        assert_eq!(lagesbild(None, vec![], None, true).lagesknapp.hors, Some(false));
+        let lange_sedan = std::time::Instant::now().checked_sub(Duration::from_secs(30));
+        assert_eq!(lagesbild(None, vec![], lange_sedan, false).lagesknapp.hors, None);
     }
 
     #[test]

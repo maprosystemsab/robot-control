@@ -19,7 +19,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use robotuppdatering::firmware::{FwVersion, Variant};
-use robotuppdatering::robot::{Installning, Installningar, Kortet, Lagesbild, Uppdaterare};
+use robotuppdatering::robot::{Installning, Installningar, Kortet, Lagesbild, Tillval, Uppdaterare};
 
 const FLASHA: &str = r#"#!/bin/sh
 D='MAPPEN'
@@ -112,7 +112,9 @@ pub fn starta(kalla: String, variant: Option<String>, mapp: PathBuf, fw: &str) -
             let kortversion = std::fs::read_to_string(mapp.join("fw_version")).ok().and_then(|t| FwVersion::tolka(t.trim()));
             let hors = nodstopp || mapp.join("kortet_har_nodstopp").exists();
             let nu = Some(Instant::now());
-            u.lagesbild(Lagesbild { kortversion, kort_svarade: kortversion.and(nu), sparrar, nodstopp_hors: Some(hors), nodstopp_hordes: nu.filter(|_| hors), lagesknapp_hors: None });
+            // Som SentinAnts robotd ser låtsasroboten nödstoppets rapporter; lägesknappen har den inte.
+            let nodstopp = Tillval { synligt: true, hors: Some(hors), senast: nu.filter(|_| hors) };
+            u.lagesbild(Lagesbild { kortversion, kort_svarade: kortversion.and(nu), sparrar, nodstopp, lagesknapp: Tillval::default() });
             std::thread::sleep(Duration::from_millis(200));
         }
     });

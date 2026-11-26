@@ -293,11 +293,7 @@ async fn main() {
                         fw_kort_sedan = if svarar { fw_kort_sedan.or(Some(Instant::now())) } else { None };
                         // Lägesknappens paket kommer varje sekund från en firmware byggd med den;
                         // okänt tills kortet svarat en stund.
-                        let lagesknapp = match telemetry.lagesknapp_at {
-                            Some(at) if at.elapsed() < Duration::from_secs(4) => Some(true),
-                            _ if fw_kort_sedan.is_some_and(|s| s.elapsed() > Duration::from_secs(10)) => Some(false),
-                            _ => None,
-                        };
+                        let moget = fw_kort_sedan.is_some_and(|s| s.elapsed() > Duration::from_secs(10));
                         let lage = firmware::Lage {
                             aktiverad: last_activated,
                             styr,
@@ -308,7 +304,7 @@ async fn main() {
                             markfel: firmware::markfel(cfg.firmware.variant.as_deref(), Path::new("/")),
                         };
                         let fw = telemetry.fw.zip(telemetry.board_at).filter(|_| svarar).map(|(v, nar)| (v, nar.into_std()));
-                        f.lagesbild(firmware::lagesbild(fw, firmware::sparrar(&lage), lagesknapp));
+                        f.lagesbild(firmware::lagesbild(fw, firmware::sparrar(&lage), telemetry.lagesknapp_at.map(|nar| nar.into_std()), moget));
                         status.firmware = Some(f.status());
                         if f.pagar() {
                             status.kor_sparr = Some(relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string());

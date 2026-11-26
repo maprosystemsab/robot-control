@@ -92,13 +92,25 @@ pub struct Lagesbild {
     /// Det som hindrar en uppdatering just nu, i klartext (aktiverad, rör sig, uppdrag kör,
     /// någon annan ansluten, lågt batteri …). Att kortet inte svarar ska inte stå här.
     pub sparrar: Vec<String>,
-    /// Kortet rapporterar nödstoppet på DI1 (firmware byggd med nödstopp). `None` = robotd
-    /// kan inte avgöra det.
-    pub nodstopp_hors: Option<bool>,
-    /// När nödstoppets rapport senast kom från kortet.
-    pub nodstopp_hordes: Option<Instant>,
-    /// Kortet rapporterar lägesknappen på DI2. `None` = robotd kan inte avgöra det.
-    pub lagesknapp_hors: Option<bool>,
+    /// Nödstoppet på DI1, som robotd ser det på kortets egna rapporter.
+    pub nodstopp: Tillval,
+    /// Lägesknappen på DI2, på samma sätt.
+    pub lagesknapp: Tillval,
+}
+
+/// Det robotd ser av ett tillval i firmwaren (nödstopp på DI1, lägesknapp på DI2): en
+/// firmware byggd med tillvalet rapporterar det av sig själv, en utan gör det inte.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Tillval {
+    /// robotd kan över huvud taget se om kortet rapporterar tillvalet. `false` = det går
+    /// inte att kontrollera här (Robotstyrnings robotd och nödstoppet: Car_Client skickar
+    /// ett eget paket för nödstoppet på Pi:n). Bara då hoppas kontrollerna över.
+    pub synligt: bool,
+    /// Rapporterar kortet tillvalet? `None` = robotd vet inte än (kortet har just börjat
+    /// svara). Okänt räknas aldrig som "stämmer".
+    pub hors: Option<bool>,
+    /// När kortets senaste rapport kom.
+    pub senast: Option<Instant>,
 }
 
 /// Hur det gick med kortets inställningar efter skrivningen.
@@ -343,16 +355,21 @@ impl Delat {
             }
         };
         if let Some(b) = bild {
-            let stam = |namn: &str, angiven: bool, hors: Option<bool>| match hors {
+            // Varianten ska stämma med det kortet visar. Kan robotd se tillvalet men vet inte
+            // än (kortet har just börjat svara) är det också ett hinder: okänt får aldrig
+            // räknas som att det stämmer.
+            let stam = |namn: &str, angiven: bool, t: &Tillval| match t.hors {
+                _ if !t.synligt => None,
+                None => Some(format!("Roboten har inte hunnit se om styrkortet rapporterar {namn}. Försök igen om några sekunder.")),
                 Some(h) if h != angiven => Some(format!(
                     "Robotens kortvariant säger {} {namn}, men styrkortet {} det. Varianten måste rättas innan roboten kan uppdateras (kontakta Mapro).",
                     if angiven { "med" } else { "utan" },
                     if h { "rapporterar" } else { "rapporterar inte" }
                 )),
-                _ => None,
+                Some(_) => None,
             };
-            hinder.extend(stam("nödstopp på DI1", variant.nodstopp, b.nodstopp_hors));
-            hinder.extend(stam("lägesknapp på DI2", variant.lagesknapp, b.lagesknapp_hors));
+            hinder.extend(stam("nödstopp på DI1", variant.nodstopp, &b.nodstopp));
+            hinder.extend(stam("lägesknapp på DI2", variant.lagesknapp, &b.lagesknapp));
         }
         hinder
     }
@@ -463,6 +480,37 @@ impl Delat {
         None
     }
 
+    /// Som [`Self::vanta_pa_kortet`], men väntar också tills robotd vet om kortet rapporterar
+    /// de tillval som går att se (efter ett uppehåll tar det några sekunder). Används före
+    /// skrivningen, så att spärrarna inte faller på att uppgiften bara inte hunnit komma.
+    fn vanta_pa_hela_bilden(&self, efter: Instant, langst: Duration) -> Option<Lagesbild> {
+        let slut = Instant::now() + langst;
+        let mut svarat = None;
+        while Instant::now() < slut {
+            if let Some(b) = self.vanta_pa_kortet(efter, Duration::from_millis(400)) {
+                let kand = |t: &Tillval| !t.synligt || t.hors.is_some();
+                if kand(&b.nodstopp) && kand(&b.lagesknapp) {
+                    return Some(b);
+                }
+                svarat = Some(b);
+            }
+        }
+        // Kortet svarar men tillvalen blev aldrig kända: spärrarna säger då varför.
+        svarat
+    }
+
+    /// Försöker starta kortet efter en utläsning som gått fel eller lämnat det tyst, och
+    /// säger hur det gick: tom text när kortet svarar, annars vad föraren ska göra.
+    fn starta_efter_utlasning(&self, flashare: &Flashare) -> String {
+        let fore = Instant::now();
+        // Går försöket fel står det i flash.log; kortet kan ha startat ändå, så svaret avgör.
+        let _ = flashare.starta_kortet();
+        match self.vanta_pa_kortet(fore, VANTA_PA_KORTET) {
+            Some(_) => String::new(),
+            None => " Styrkortet svarar inte efteråt: slå av och på strömmen till roboten.".into(),
+        }
+    }
+
     /// Skriver tillbaka säkerhetskopian och ser om kortet svarar med den gamla versionen.
     fn skriv_tillbaka(&self, flashare: &Flashare, dump: &Path, fran: Option<FwVersion>) -> (bool, String) {
         if let Err(e) = flashare.aterstall(dump) {
@@ -553,18 +601,34 @@ impl Delat {
         kort.spara_installningar(&kopia).map_err(|t| orort(format!("Styrkortets inställningar gick inte att spara ({t}).")))?;
         self.steg(version, 5, "Säkerhetskopierar styrkortets minne", None);
         let dump = kopia.join("flash.bin");
-        flashare.dumpa(&dump).map_err(|t| orort(format!("Styrkortets minne gick inte att säkerhetskopiera ({t}).")))?;
+        if let Err(t) = flashare.dumpa(&dump) {
+            // Utläsningen stannar processorn. Gick den fel kan kortet stå kvar stoppat fast
+            // ingenting skrivits: försök starta det, och säg till om det inte svarar.
+            let efterat = self.starta_efter_utlasning(&flashare);
+            return Err(orort(format!("Styrkortets minne gick inte att säkerhetskopiera ({t}).{efterat}")));
+        }
         {
             let mut i = self.inre.lock().unwrap();
             i.sparat.dump = Some(dump.clone());
             i.sparat.fran = Some(har.to_string());
         }
-        // Utläsningen stannade kortet en stund: vänta på att det svarar igen, och se att
-        // roboten fortfarande står still, innan något skrivs.
-        if self.vanta_pa_kortet(Instant::now(), VANTA_PA_KORTET).is_none() {
-            return Err(orort("Styrkortet svarar inte efter säkerhetskopieringen.".into()));
+        // Utläsningen stannade kortet en stund: vänta på att det svarar igen (och att robotd
+        // åter vet vad kortet rapporterar), och se att roboten fortfarande står still, innan
+        // något skrivs. Svarar det inte görs ett försök att starta det.
+        let efter_utlasning = Instant::now();
+        if self.vanta_pa_hela_bilden(efter_utlasning, VANTA_PA_KORTET).is_none() {
+            let efterat = self.starta_efter_utlasning(&flashare);
+            if !efterat.is_empty() {
+                return Err(orort(format!("Styrkortet svarar inte efter säkerhetskopieringen.{efterat}")));
+            }
+            if self.vanta_pa_hela_bilden(efter_utlasning, VANTA_PA_KORTET).is_none() {
+                return Err(orort("Styrkortet svarar inte efter säkerhetskopieringen.".into()));
+            }
         }
-        spart(self)?;
+        // Den här bilden (kortet har svarat en stund) avgör vad som ska krävas av den nya
+        // firmwaren efter skrivningen: bilden direkt efter omstarten gör det inte, för då
+        // vet robotd ännu inte vad kortet rapporterar.
+        let fore = spart(self)?;
 
         // 6. Skrivningen. Härifrån skrivs säkerhetskopian tillbaka om något går fel.
         self.steg(version, 6, "Skriver den nya firmwaren – bryt inte strömmen", None);
@@ -590,16 +654,26 @@ impl Delat {
             let fick = efter.kortversion.map(|v| v.to_string()).unwrap_or_default();
             return Err(tillbaka(self, format!("Styrkortet uppger version {fick} efter skrivningen, inte {version}.")));
         }
-        // Varianten har nödstoppet på DI1, och robotd kan se om kortet rapporterar det: då
-        // ska en rapport ha kommit från den NYA firmwaren (efter skrivningen).
-        if variant.nodstopp && efter.nodstopp_hors.is_some() {
+        // Tillvalen: har varianten nödstoppet på DI1 (eller lägesknappen på DI2) och robotd kan
+        // se kortets rapporter, ska en rapport komma från den NYA firmwaren, alltså efter
+        // skrivningen. Vad robotd kan se avgjordes före skrivningen (`fore`); att robotd inte
+        // hunnit höra något direkt efter omstarten släpper aldrig igenom något.
+        type Senast = fn(&Lagesbild) -> Option<Instant>;
+        let tillval: [(&str, bool, bool, Senast); 2] = [
+            ("nödstoppet på DI1", variant.nodstopp, fore.nodstopp.synligt, |b| b.nodstopp.senast),
+            ("lägesknappen på DI2", variant.lagesknapp, fore.lagesknapp.synligt, |b| b.lagesknapp.senast),
+        ];
+        for (namn, angiven, kunde_ses, valj) in tillval {
+            if !(angiven && kunde_ses) {
+                continue;
+            }
             let slut = Instant::now() + VANTA_PA_NODSTOPP;
-            let hord = |d: &Delat| d.bild().is_some_and(|b| b.nodstopp_hordes.is_some_and(|n| n > skrivet));
+            let hord = |d: &Delat| d.bild().is_some_and(|b| valj(&b).is_some_and(|n| n > skrivet));
             while !hord(self) && Instant::now() < slut {
                 std::thread::sleep(Duration::from_millis(300));
             }
             if !hord(self) {
-                return Err(tillbaka(self, "Den nya firmwaren rapporterar inte nödstoppet på DI1.".into()));
+                return Err(tillbaka(self, format!("Den nya firmwaren rapporterar inte {namn}.")));
             }
         }
         let mut anmarkningar = Vec::new();
