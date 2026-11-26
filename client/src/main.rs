@@ -14,6 +14,7 @@ mod settings;
 mod video;
 mod guide;
 mod lidarvy;
+mod robotnamn;
 
 use std::time::{Duration, Instant};
 
@@ -77,6 +78,8 @@ struct App {
     screen: Screen,
     name_input: String,
     known_robots: Vec<String>, // laddas/sparas via `directories`-mappen
+    /// Robotarnas namn från serverns robotlista (visas i stället för bara IP).
+    robotnamn: robotnamn::RobotNamn,
     net: NetLink,
     gamepad: Option<GamepadReader>,
     activated: bool,
@@ -124,6 +127,7 @@ impl App {
             screen: Screen::Connect,
             name_input: String::new(),
             known_robots: load_known_robots(),
+            robotnamn: robotnamn::RobotNamn::starta(&rt_handle),
             net: NetLink::new(),
             gamepad: GamepadReader::new().ok(),
             activated: false,
@@ -248,15 +252,75 @@ impl App {
                         ui.label(
                             egui::RichText::new("Tidigare anslutna").color(egui::Color32::GRAY),
                         );
-                        for name in self.known_robots.clone() {
-                            if ui
-                                .add(egui::Button::new(
-                                    egui::RichText::new(&name).color(egui::Color32::WHITE),
-                                ))
-                                .clicked()
-                            {
-                                self.connect_to(name);
-                            }
+                        let mut ta_bort: Option<String> = None;
+                        // Bokstavsordning efter det som visas (namnet, annars adressen).
+                        let mut rader: Vec<(Option<String>, String)> = self
+                            .known_robots
+                            .iter()
+                            .map(|a| (self.robotnamn.namn_for(a), a.clone()))
+                            .collect();
+                        rader.sort_by_cached_key(|(n, a)| {
+                            robotnamn::sorteringsnyckel(n.as_deref().unwrap_or(a))
+                        });
+                        for (namn, adress) in rader {
+                            ui.allocate_ui_with_layout(
+                                egui::vec2(360.0, 30.0),
+                                egui::Layout::left_to_right(egui::Align::Center),
+                                |ui| {
+                                    let mut text = egui::text::LayoutJob::default();
+                                    let vit = egui::TextFormat {
+                                        font_id: egui::FontId::proportional(15.0),
+                                        color: egui::Color32::WHITE,
+                                        ..Default::default()
+                                    };
+                                    let gra = egui::TextFormat {
+                                        font_id: egui::FontId::proportional(12.0),
+                                        color: egui::Color32::GRAY,
+                                        valign: egui::Align::Center,
+                                        ..Default::default()
+                                    };
+                                    match &namn {
+                                        Some(n) => {
+                                            text.append(n, 0.0, vit);
+                                            text.append(&adress, 10.0, gra);
+                                        }
+                                        None => text.append(&adress, 0.0, vit),
+                                    }
+                                    if ui
+                                        .add(egui::Button::new(text).min_size(egui::vec2(320.0, 28.0)))
+                                        .clicked()
+                                    {
+                                        self.connect_to(adress.clone());
+                                    }
+                                    // Krysset ritas med streck: tecknet ✕ finns inte i
+                                    // programmets typsnitt (blev en tom ruta).
+                                    let kryss = ui
+                                        .add(egui::Button::new("").min_size(egui::vec2(28.0, 28.0)))
+                                        .on_hover_text("Ta bort ur listan");
+                                    let farg = if kryss.hovered() {
+                                        egui::Color32::from_rgb(220, 90, 90)
+                                    } else {
+                                        egui::Color32::GRAY
+                                    };
+                                    let (m, d) = (kryss.rect.center(), 5.0);
+                                    let streck = egui::Stroke::new(1.5_f32, farg);
+                                    ui.painter().line_segment(
+                                        [m - egui::vec2(d, d), m + egui::vec2(d, d)],
+                                        streck,
+                                    );
+                                    ui.painter().line_segment(
+                                        [m + egui::vec2(-d, d), m + egui::vec2(d, -d)],
+                                        streck,
+                                    );
+                                    if kryss.clicked() {
+                                        ta_bort = Some(adress.clone());
+                                    }
+                                },
+                            );
+                        }
+                        if let Some(bort) = ta_bort {
+                            self.known_robots.retain(|a| a != &bort);
+                            save_known_robots(&self.known_robots);
                         }
                     }
                 });
@@ -267,6 +331,8 @@ impl App {
         if target.trim().is_empty() {
             return;
         }
+        // Ett robotnamn från serverns lista ("FMV 2") blir robotens adress.
+        let target = self.robotnamn.adress_for(&target).unwrap_or_else(|| target.trim().to_string());
         self.connect_error = None;
         self.pending_target = Some(target.clone());
         // Alltid CAM som startläge vid varje ny anslutning — medvetet
