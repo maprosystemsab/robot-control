@@ -63,7 +63,7 @@ steg "Roboten (Pi:n och styrkortet)"
 PI="${PI:-$(cat "$KONF/pi" 2>/dev/null)}"
 if [ -z "$PI" ]; then
   echo -e "${RED}Ingen robot vald. Kör en gång med roboten angiven, t.ex.:${NC}"
-  echo "  PI=robant1@192.168.200.14 bash scripts/uppdatera.sh"
+  echo "  PI=mapro@192.168.200.16 bash scripts/uppdatera.sh"
   RESULTAT+=("Roboten: FEL, ingen robot vald (PI=…)")
   PI=""
 fi
