@@ -73,6 +73,19 @@ cargo build --release -p robotstyrning -p mock-robotd
 
 REPO="$(pwd)"
 BYGGT="$REPO/target/release/robotstyrning"
+# Versionen ska vara commitens tid, samma som scripts/sentinant_lite_version.sh räknar fram.
+# Byggskriptet (client/build.rs) räknar bara om den när git-mappen det senast såg ändras, så
+# den kan vara inaktuell om robot-control-mappen har flyttats eller kopierats: räkna då om.
+VANTAD="$(bash scripts/sentinant_lite_version.sh)"
+if [ "$("$BYGGT" --version)" != "$VANTAD" ]; then
+  echo "Programmet uppger version $("$BYGGT" --version), väntat $VANTAD: bygger om."
+  touch client/build.rs
+  cargo build --release -p robotstyrning -p mock-robotd
+fi
+if [ "$("$BYGGT" --version)" != "$VANTAD" ]; then
+  echo "FEL: det byggda programmet uppger version $("$BYGGT" --version), väntat $VANTAD. Ingenting har installerats." >&2
+  exit 1
+fi
 # Ett provbygge (godkänner provnyckeln, som vem som helst kan signera med) installeras aldrig.
 if grep -a -q "ROBOTUPPDATERING-PROVBYGGE-MED-PROVNYCKEL" "$BYGGT"; then
   echo "FEL: $BYGGT är ett PROVBYGGE (byggt med provnyckeln) och installeras inte." >&2

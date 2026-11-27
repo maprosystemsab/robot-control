@@ -70,6 +70,13 @@ if grep -a -q "ROBOTUPPDATERING-PROVBYGGE-MED-PROVNYCKEL" "$PROGRAM"; then
   echo "FEL: $PROGRAM är ett PROVBYGGE (byggt med provnyckeln) och publiceras inte." >&2
   exit 1
 fi
+if [ "$("$PROGRAM" --version)" != "$VERSION" ]; then
+  # Byggskriptet räknar bara om versionen när git-mappen det senast såg ändras. Har samma
+  # byggmapp använts från en annan kopia av repot kan den vara inaktuell: räkna om en gång.
+  echo "Programmet uppger '$("$PROGRAM" --version)', väntat $VERSION: bygger om med omräknad version."
+  touch client/build.rs
+  cargo build --release -p robotstyrning 2>&1 | tail -1
+fi
 [ "$("$PROGRAM" --version)" = "$VERSION" ] || { echo "FEL: Linux-programmet uppger '$("$PROGRAM" --version)', väntat $VERSION" >&2; exit 1; }
 bash scripts/bygg_paket.sh
 if [ "$WINDOWS" -eq 1 ]; then bash scripts/bygg_windows.sh; fi

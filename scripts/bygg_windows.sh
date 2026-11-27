@@ -55,7 +55,7 @@ if x86_64-w64-mingw32-objdump -p "$PROGRAM" | grep -i "DLL Name" | grep -qi "lib
   exit 1
 fi
 # Versionen ska stå i programfilen (den går inte att fråga här).
-grep -q -a -F "$VERSION" "$PROGRAM" || { echo "FEL: $PROGRAM innehåller inte versionen $VERSION" >&2; exit 1; }
+grep -q -a -F "$VERSION" "$PROGRAM" || { echo "FEL: $PROGRAM innehåller inte versionen $VERSION. Kör: touch client/build.rs och försök igen (byggskriptets version är inaktuell)." >&2; exit 1; }
 
 INSTALLATION="$UT/SentinAnt-Lite-installation-${VERSION/+/-}.exe"
 makensis -V2 -INPUTCHARSET UTF8 \

@@ -35,7 +35,7 @@ if grep -a -q "ROBOTUPPDATERING-PROVBYGGE-MED-PROVNYCKEL" "$PROGRAM"; then
   exit 1
 fi
 VERSION="$("$PROGRAM" --version)"
-[ "$VERSION" = "$(bash scripts/sentinant_lite_version.sh)" ] || { echo "FEL: programmet uppger '$VERSION', väntat $(bash scripts/sentinant_lite_version.sh)." >&2; exit 1; }
+[ "$VERSION" = "$(bash scripts/sentinant_lite_version.sh)" ] || { echo "FEL: programmet uppger '$VERSION', väntat $(bash scripts/sentinant_lite_version.sh). Kör: touch client/build.rs och försök igen (byggskriptets version är inaktuell)." >&2; exit 1; }
 echo "--- SentinAnt Lite $VERSION ($ARCH) ---"
 
 R="$TMP/sentinant-lite"
