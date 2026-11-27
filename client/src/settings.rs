@@ -242,14 +242,21 @@ impl SettingsView {
 
             egui::ScrollArea::vertical().show(ui, |ui| {
                 // Robotens firmware först: det är den del en kund använder.
-                if let Some(s) = net.fresh_status() {
-                    let forare = net.state == crate::net::ConnectionState::ConnectedAsDriver;
+                // Det senast kända beskedet visas även när statusen dröjer (svajig länk): rutan
+                // får inte försvinna mitt i en uppdatering. Knapparna kräver färsk status.
+                if let Some(s) = net.last_status.as_ref() {
+                    let farsk = net.fresh_status().is_some();
+                    let forare = farsk && net.state == crate::net::ConnectionState::ConnectedAsDriver;
+                    ui.add_space(8.0);
                     if let Some(kommando) = self.firmware.draw(ui, s.firmware.as_ref(), forare) {
                         self.firmware_msg = None;
                         net.firmware(kommando);
                     }
                     if let Some(text) = &self.firmware_msg {
                         ui.colored_label(egui::Color32::from_rgb(230, 80, 80), text);
+                    }
+                    if !farsk {
+                        ui.colored_label(egui::Color32::from_rgb(240, 160, 60), "Väntar på besked från roboten … Uppgifterna ovan är de senaste som kom.");
                     }
                     ui.add_space(8.0);
                     ui.separator();

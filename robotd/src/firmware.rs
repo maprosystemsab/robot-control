@@ -171,7 +171,7 @@ pub fn sparrar(l: &Lage) -> Vec<String> {
         s.push(format!("{} till är anslutna till roboten. Bara den som kör får vara ansluten.", l.andra_anslutna));
     }
     if l.batteri_procent.is_some_and(|p| p < BATTERI_MINST) {
-        s.push(format!("Batteriet är under {BATTERI_MINST:.0} %. Ladda först."));
+        s.push(format!("Batteriet är under {BATTERI_MINST:.0} %, eller så mäts ingen batterispänning. Ladda först."));
     }
     s.extend(l.markfel.clone());
     s
