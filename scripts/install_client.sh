@@ -32,32 +32,28 @@ if [ ! -f "Cargo.toml" ] || [ ! -d "client" ]; then
   exit 1
 fi
 
-echo "--- Installerar systempaket ---"
-# Paketlistan får inte stoppa installationen: på en dator som redan har paketen behövs den
-# inte, och ett hängt nät (sett på Mats dator 2026-11-27: apt-get update stod still i tolv
-# minuter) eller ett trasigt extra förråd ska inte hindra uppdateringen av programmet.
-sudo timeout 300 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update \
-  || echo "VARNING: paketlistan gick inte att uppdatera (nätet eller ett extra förråd). Fortsätter med de paket som finns."
-sudo apt-get install -y \
-  build-essential \
-  pkg-config \
-  libssl-dev \
-  libx11-dev \
-  libxkbcommon-dev \
-  libxkbcommon-x11-0 \
-  libwayland-dev \
-  libgl1-mesa-dev \
-  libxcb-render0-dev \
-  libxcb-shape0-dev \
-  libxcb-xfixes0-dev \
-  libudev-dev \
-  gstreamer1.0-plugins-base \
-  gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad \
-  libgstreamer1.0-dev \
-  libgstreamer-plugins-base1.0-dev \
-  curl \
-  git
+echo "--- Systempaket ---"
+PAKET=(build-essential pkg-config libssl-dev libx11-dev libxkbcommon-dev libxkbcommon-x11-0
+  libwayland-dev libgl1-mesa-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+  libudev-dev gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad
+  libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev curl git)
+SAKNAS=()
+for p in "${PAKET[@]}"; do
+  dpkg-query -W -f='${Status}' "$p" 2>/dev/null | grep -q "install ok installed" || SAKNAS+=("$p")
+done
+if [ ${#SAKNAS[@]} -eq 0 ]; then
+  # En dator som redan har paketen (varje uppdatering efter den första) rör inte apt alls:
+  # på Mats dator 2026-11-27 stod "apt-get update" still i tolv minuter på ett svajigt nät
+  # (den hämtade 480 MB innehållslistor), och det har inget med programmet att göra.
+  echo "Alla systempaket finns redan."
+else
+  echo "Installerar: ${SAKNAS[*]}"
+  # Paketlistan får inte stoppa installationen: tidsgräns, och ett fel ger bara en varning
+  # (ett trasigt extra förråd på datorn ska inte hindra installationen av paketen).
+  sudo timeout 300 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update \
+    || echo "VARNING: paketlistan gick inte att uppdatera (nätet eller ett extra förråd). Försöker installera ändå."
+  sudo apt-get install -y "${SAKNAS[@]}"
+fi
 
 echo "--- Kontrollerar Rust ---"
 if ! command -v cargo >/dev/null 2>&1; then
