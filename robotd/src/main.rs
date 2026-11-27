@@ -54,6 +54,27 @@ async fn main() {
     // egen uppgift. Den tar Car_Client bara medan en klient är ansluten och
     // släpper den annars, så att RControlStation kan användas när ingen kör
     // med robotstyrning (Car_Client tar bara en klient åt gången).
+    //
+    // Länken hålls också medan styrkortet uppdateras, även om föraren tappar anslutningen:
+    // uppdateraren behöver kortets svar för att göra klart, och utan länken skulle den efter
+    // en lyckad skrivning tro att kortet är tyst och skriva tillbaka den gamla firmwaren
+    // (sett vid provet på FMV 2 2026-11-27: uppdateringen stod still tills någon anslöt igen).
+    let (fw_pagar_tx, fw_pagar_rx) = tokio::sync::watch::channel(false);
+    let lank_onskas = {
+        let (tx, rx) = tokio::sync::watch::channel(false);
+        let (mut klienter, mut fw) = (server.clients_connected.clone(), fw_pagar_rx);
+        tokio::spawn(async move {
+            loop {
+                let onskas = *klienter.borrow_and_update() || *fw.borrow_and_update();
+                tx.send_if_modified(|v| std::mem::replace(v, onskas) != onskas);
+                tokio::select! {
+                    r = klienter.changed() => if r.is_err() { break },
+                    r = fw.changed() => if r.is_err() { break },
+                }
+            }
+        });
+        rx
+    };
     let link = match cfg.car_client_addr.parse() {
         Ok(addr) => Some(car_client_link::spawn(
             car_client_link::LinkParams {
@@ -64,7 +85,7 @@ async fn main() {
                 pivot_activity: cfg.drive.pivot_activity,
                 steering_sensor: cfg.vehicle.steering_sensor,
             },
-            server.clients_connected.clone(),
+            lank_onskas,
         )),
         Err(e) => {
             tracing::error!("Ogiltig car_client_addr i config: {e} — ingen körning möjlig.");
@@ -306,7 +327,9 @@ async fn main() {
                         let fw = telemetry.fw.zip(telemetry.board_at).filter(|_| svarar).map(|(v, nar)| (v, nar.into_std()));
                         f.lagesbild(firmware::lagesbild(fw, firmware::sparrar(&lage), telemetry.lagesknapp_at.map(|nar| nar.into_std()), moget));
                         status.firmware = Some(f.status());
-                        if f.pagar() {
+                        let pagar = f.pagar();
+                        fw_pagar_tx.send_if_modified(|v| std::mem::replace(v, pagar) != pagar);
+                        if pagar {
                             status.kor_sparr = Some(relay_protocol::firmware::TEXT_UPPDATERING_PAGAR.to_string());
                         }
                     }
