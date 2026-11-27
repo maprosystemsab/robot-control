@@ -3538,6 +3538,7 @@ dependencies = [
 name = "robotstyrning"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "directories",
  "eframe",
  "egui",
@@ -3546,6 +3547,8 @@ dependencies = [
  "image",
  "openh264",
  "relay-protocol",
+ "ring",
+ "robotuppdatering",
  "serde",
  "serde_json",
  "tokio",

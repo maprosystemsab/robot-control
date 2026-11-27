@@ -2,9 +2,19 @@
 name = "robotstyrning"
 edition.workspace = true
 version.workspace = true
+build = "build.rs"       # versionen (commit-tiden) och Windows-ikonen
+
+# Programmet heter SentinAnt Lite sedan 2026-11-27. Paketet och programfilen från cargo
+# heter fortfarande robotstyrning; den installeras som sentinant-lite (scripts/).
+
+[features]
+# BARA FÖR PROV: godkänner uppdateringslistor signerade med provnyckeln. Aldrig i ett
+# program som delas ut (se robotuppdatering/Cargo.toml).
+provnyckel = ["robotuppdatering/provnyckel"]
 
 [dependencies]
 relay-protocol = { path = "../relay-protocol" }
+robotuppdatering = { path = "../robotuppdatering", features = ["kontroll"] }  # uppdateringslistan: signatur, löpnummer, SHA-256
 eframe = "0.27"
 egui = "0.27"
 tokio = { version = "1", features = ["full"] }
@@ -19,3 +29,7 @@ openh264 = "0.9.8"
 # Kartan i LOS-läge: hämta kartbilder (https) och avkoda dem.
 ureq = "2"
 image = { version = "0.24", default-features = false, features = ["jpeg", "png"] }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }  # uppdateringslistans datum
+
+[dev-dependencies]
+ring = "0.17"            # testerna signerar provlistor (ed25519)

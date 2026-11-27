@@ -36,3 +36,6 @@ Skärmbild*.png
 
 # Python-cache
 __pycache__/
+
+# Färdiga paket och uppdateringsmappen (scripts/bygg_paket.sh, bygg_windows.sh, publicera_lite.sh)
+/paket/

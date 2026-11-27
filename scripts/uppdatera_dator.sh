@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# uppdatera_dator.sh — uppdaterar programmen på DATORN: Robotstyrning och
-# RControlStation. Inget annat: roboten och dess styrkort rörs inte (dem uppdaterar
-# vi på distans). Inga frågor utom datorns lösenord.
+# uppdatera_dator.sh — uppdaterar programmen på DATORN: SentinAnt Lite (hette
+# Robotstyrning till 2026-11-27) och RControlStation. Inget annat: roboten och dess
+# styrkort rörs inte (dem uppdaterar vi på distans). Inga frågor utom datorns lösenord.
 #
 #   cd ~/robot-control && git pull && bash scripts/uppdatera_dator.sh
 #
 #   1. git pull (robot-control), och skriptet startar om sig självt med den nya versionen
-#   2. Robotstyrning (scripts/install_client.sh)
+#   2. SentinAnt Lite (scripts/install_client.sh). Den som hade Robotstyrning får här
+#      det nya namnet, ny genväg och uppdateringsknappen. Därefter uppdateras SentinAnt
+#      Lite från programmet (knappen längst ned på startskärmen), utan terminal.
 #   3. RControlStation, om den finns: git pull i rise_sdvp och ombyggnad
-#      (databasen med dosans inställningar behålls)
+#      (databasen med dosans inställningar behålls). RControlStation har ingen
+#      uppdateringsknapp: den uppdateras bara med det här skriptet.
 #
-# Stäng Robotstyrning och RControlStation innan.
+# Stäng SentinAnt Lite (Robotstyrning) och RControlStation innan.
 set -uo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 GREEN='\033[1;32m'; YELLOW='\033[1;33m'; RED='\033[1;31m'; NC='\033[0m'
@@ -25,8 +28,8 @@ for a in "$@"; do
   esac
 done
 
-if pgrep -x RControlStation >/dev/null || pgrep -x robotstyrning >/dev/null; then
-  echo -e "${RED}Stäng Robotstyrning och RControlStation först, och kör sedan samma kommando igen.${NC}"
+if pgrep -x RControlStation >/dev/null || pgrep -x robotstyrning >/dev/null || pgrep -x Robotstyrning >/dev/null || pgrep -x sentinant-lite >/dev/null; then
+  echo -e "${RED}Stäng SentinAnt Lite (Robotstyrning) och RControlStation först, och kör sedan samma kommando igen.${NC}"
   exit 1
 fi
 
@@ -49,12 +52,12 @@ if [ "$EFTER_PULL" -eq 0 ]; then
   exec bash scripts/uppdatera_dator.sh --efter-pull
 fi
 
-# --- 2. Robotstyrning --------------------------------------------------------------
-steg "2/3 Robotstyrning"
+# --- 2. SentinAnt Lite (f.d. Robotstyrning) ----------------------------------------
+steg "2/3 SentinAnt Lite (hette förut Robotstyrning)"
 if bash scripts/install_client.sh; then
-  RESULTAT+=("Robotstyrning: uppdaterad")
+  RESULTAT+=("SentinAnt Lite: uppdaterad")
 else
-  RESULTAT+=("Robotstyrning: FEL, se ovan")
+  RESULTAT+=("SentinAnt Lite: FEL, se ovan")
 fi
 
 # --- 3. RControlStation --------------------------------------------------------------
@@ -119,7 +122,10 @@ for r in "${RESULTAT[@]}"; do
   if [[ "$r" == *FEL* ]]; then echo -e "${RED}  $r${NC}"; ALLT_OK=0; else echo -e "  $r"; fi
 done
 if [ "$ALLT_OK" -eq 1 ]; then
-  echo -e "\n${GREEN}Datorn är uppdaterad. Starta Robotstyrning eller RControlStation som vanligt.${NC}"
+  echo -e "\n${GREEN}Datorn är uppdaterad. Robotstyrning heter nu SentinAnt Lite: starta den från programmenyn${NC}"
+  echo -e "${GREEN}(sök på SentinAnt), eller skriv Robotstyrning i en terminal som förut. RControlStation som vanligt.${NC}"
+  echo "Nya versioner av SentinAnt Lite installeras härefter från programmet: knappen längst ned på"
+  echo "startskärmen blir grön när det finns en uppdatering. RControlStation uppdateras som förut med det här kommandot."
 else
   echo -e "\n${YELLOW}Något blev inte klart. Kör samma kommando igen; det som redan är klart går fort.${NC}"
   exit 1

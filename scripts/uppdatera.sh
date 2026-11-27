@@ -36,8 +36,8 @@ ny_adress() {
 }
 
 if [ "$EFTER_PULL" -eq 0 ]; then
-  if pgrep -x RControlStation >/dev/null || pgrep -x robotstyrning >/dev/null; then
-    echo -e "${RED}Stäng Robotstyrning och RControlStation först, och kör sedan samma kommando igen.${NC}"
+  if pgrep -x RControlStation >/dev/null || pgrep -x robotstyrning >/dev/null || pgrep -x Robotstyrning >/dev/null || pgrep -x sentinant-lite >/dev/null; then
+    echo -e "${RED}Stäng SentinAnt Lite (Robotstyrning) och RControlStation först, och kör sedan samma kommando igen.${NC}"
     exit 1
   fi
   steg "Hämtar senaste versionen (git pull)"

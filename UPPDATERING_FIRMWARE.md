@@ -1,4 +1,4 @@
-# Styrkortets firmware från Robotstyrning
+# Styrkortets firmware från SentinAnt Lite (f.d. Robotstyrning)
 
 Under **Inställningar**, överst, står styrkortets firmwareversion och knappen **Sök ny
 firmware**. Finns en nyare version på vår server blir **Uppdatera roboten** grön. Före
@@ -9,7 +9,7 @@ riktigt styrkort**.
 
 Hela beskrivningen (hur det fungerar, säkerheten, hur firmware publiceras, checklistan för
 första provet på ett riktigt kort) står i SentinAnts dokument, eftersom koden är gemensam:
-`~/SentinAnt/program/dokument/uppdatering.md`, avsnitt 7. Det som gäller Robotstyrning:
+`~/SentinAnt/program/dokument/uppdatering.md`, avsnitt 7. Det som gäller SentinAnt Lite:
 
 - **Roboten gör allt själv.** robotd hämtar den signerade listan från
   `http://192.168.200.1:8088/sentinant/`, kontrollerar signaturen, hämtar filen för sin

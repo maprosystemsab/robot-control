@@ -1,11 +1,16 @@
-//! Robotstyrning — klientprogrammet.
+//! SentinAnt Lite — klientprogrammet (hette Robotstyrning till 2026-11-27; paketet,
+//! repot och inställningsmappen heter fortfarande så).
 //!
-//! Flöde (beslutat i spec): svart anslutningsskärm med ett textfält i
-//! mitten (robotnamn eller IP) -> helskärm med kamerabild -> AKTIVERA-knapp
+//! Flöde (beslutat i spec): svart anslutningsskärm med loggan och ett textfält i
+//! mitten (robotnamn eller IP), versionen och uppdateringsknappen längst ned
+//! (se uppdatering.rs) -> helskärm med kamerabild -> AKTIVERA-knapp
 //! ovanpå bilden -> färgad ram runt hela fönstret (grön/gul/röd, lila vid
 //! dosa-tapp) -> statusinfo i hörnet (hastighet, signal, ping, batteri).
 //! Kan minimeras/flyttas som ett vanligt fönster, tvingar inte helskärm.
 //! Språk: svenska.
+
+// Windows: ett fönsterprogram, utan svart konsolruta bakom.
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
 mod firmware;
 mod gamepad;
@@ -17,6 +22,8 @@ mod guide;
 mod lidarvy;
 mod robotnamn;
 mod karta;
+mod uppdatering;
+mod version;
 
 use std::time::{Duration, Instant};
 
@@ -27,18 +34,31 @@ use relay_protocol::{ControlCommand, LinkQuality};
 
 const ACTIVATE_IDLE_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 
+/// Namnet kunden ser: fönstrets titel och genvägen.
+const PROGRAMNAMN: &str = "SentinAnt Lite";
+
 fn main() -> eframe::Result<()> {
+    // `--version`, rester efter en uppdatering och överlämningen till en nyare kopia (Linux).
+    uppdatering::fore_start();
     let rt = tokio::runtime::Runtime::new().expect("kunde inte starta tokio-runtime");
     let rt_handle = rt.handle().clone();
     // Håll runtimen vid liv i bakgrunden så länge appen kör.
     std::thread::spawn(move || rt.block_on(std::future::pending::<()>()));
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1280.0, 800.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 800.0])
+            .with_title(PROGRAMNAMN)
+            .with_app_id("sentinant-lite")
+            .with_icon(eframe::icon_data::from_png_bytes(include_bytes!("../assets/ikon.png")).unwrap_or_default()),
+        // Alltid mörkt, som på Linux. På Windows följer eframe annars systemets tema, och i
+        // ljust tema blir fälten vita med vit text (programmet är ritat för mörkt).
+        follow_system_theme: false,
+        default_theme: eframe::Theme::Dark,
         ..Default::default()
     };
     eframe::run_native(
-        "Robotstyrning",
+        PROGRAMNAMN,
         options,
         Box::new(move |_cc| {
             let mut app = App::new(rt_handle);
@@ -122,6 +142,10 @@ struct App {
     logs_open: bool,
     logs: Vec<relay_protocol::DriveLogInfo>,
     logs_message: String,
+    /// Loggan på anslutningsskärmen (laddas första gången den ritas).
+    logo: Option<egui::TextureHandle>,
+    /// Versionen och uppdateringsknappen längst ned på anslutningsskärmen.
+    uppdatering: uppdatering::Uppdatering,
     /// För tester (`ROBOTSTYRNING_SKARMBILD`): när appen startade och om skärmbilden begärts.
     started: Instant,
     screenshot_requested: bool,
@@ -158,6 +182,8 @@ impl App {
             logs_open: false,
             logs: Vec::new(),
             logs_message: String::new(),
+            logo: None,
+            uppdatering: uppdatering::Uppdatering::starta(),
             started: Instant::now(),
             screenshot_requested: false,
         }
@@ -216,6 +242,12 @@ impl eframe::App for App {
             ConnectionState::Connecting => {}
         }
 
+        // Uppdateringen hör till anslutningsskärmen: med en robot ansluten avbryts en pågående
+        // hämtning, och programmet startas aldrig om.
+        if !matches!(self.screen, Screen::Connect) {
+            self.uppdatering.avbryt();
+        }
+
         match self.screen {
             Screen::Connect => self.draw_connect_screen(ctx),
             Screen::Driving => self.draw_driving_screen(ctx),
@@ -233,11 +265,30 @@ impl eframe::App for App {
 
 impl App {
     fn draw_connect_screen(&mut self, ctx: &egui::Context) {
+        // Längst ned: versionen och uppdateringsknappen.
+        if self.uppdatering.visas() {
+            egui::TopBottomPanel::bottom("uppdatering")
+                .frame(egui::Frame::none().fill(egui::Color32::BLACK).inner_margin(egui::Margin::symmetric(8.0, 10.0)))
+                .show_separator_line(false)
+                .show(ctx, |ui| ui.vertical_centered(|ui| self.uppdatering.ui(ui)));
+        }
         egui::CentralPanel::default()
             .frame(egui::Frame::none().fill(egui::Color32::BLACK))
             .show(ctx, |ui| {
                 ui.vertical_centered(|ui| {
-                    ui.add_space(ui.available_height() / 2.0 - 60.0);
+                    ui.add_space((ui.available_height() / 2.0 - 200.0).max(8.0));
+                    // Loggan: SentinAnts, med "Lite" snett över (client/assets/gor_bilder.py).
+                    let logo = self.logo.get_or_insert_with(|| {
+                        let img = image::load_from_memory(include_bytes!("../assets/logga.png"))
+                            .map(|i| i.to_rgba8())
+                            .unwrap_or_default();
+                        let size = [img.width() as usize, img.height() as usize];
+                        ctx.load_texture("logga", egui::ColorImage::from_rgba_unmultiplied(size, &img), Default::default())
+                    });
+                    let w = 377.0_f32.min(ui.available_width() - 32.0).max(120.0);
+                    let h = w * logo.size()[1] as f32 / logo.size()[0].max(1) as f32;
+                    ui.add(egui::Image::new((logo.id(), egui::vec2(w, h))));
+                    ui.add_space(40.0);
 
                     let field = egui::TextEdit::singleline(&mut self.name_input)
                         .hint_text("Robotnamn eller IP-adress")
@@ -826,7 +877,7 @@ impl App {
                     if ui.button("Öppna mappen").clicked() {
                         if let Some(dir) = drive_log_dir() {
                             let _ = std::fs::create_dir_all(&dir);
-                            let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
+                            let _ = std::process::Command::new(if cfg!(windows) { "explorer" } else { "xdg-open" }).arg(dir).spawn();
                         }
                     }
                 });
@@ -900,7 +951,8 @@ impl App {
     }
 }
 
-/// Mappen där hämtade körloggar sparas: Hämtningar/Robotstyrning-körloggar, eller på
+/// Mappen där hämtade körloggar sparas: Hämtningar/SentinAnt Lite-körloggar (den som redan
+/// har den äldre mappen Robotstyrning-körloggar fortsätter i den), eller på
 /// kontorsdatorn (som har projektmappen ~/Robotstyrning, sedan 2026-10-31)
 /// ~/Robotstyrning/blandade projektfiler/korloggar.
 fn drive_log_dir() -> Option<std::path::PathBuf> {
@@ -912,7 +964,8 @@ fn drive_log_dir() -> Option<std::path::PathBuf> {
     let base = directories::UserDirs::new()
         .and_then(|u| u.download_dir().map(|d| d.to_path_buf()))
         .or_else(|| directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf()))?;
-    Some(base.join("Robotstyrning-körloggar"))
+    let gammal = base.join("Robotstyrning-körloggar");
+    Some(if gammal.is_dir() { gammal } else { base.join("SentinAnt Lite-körloggar") })
 }
 
 fn save_drive_log(name: &str, csv: &str) -> Result<std::path::PathBuf, String> {
@@ -925,9 +978,14 @@ fn save_drive_log(name: &str, csv: &str) -> Result<std::path::PathBuf, String> {
     Ok(path)
 }
 
+/// Inställningsmappen. Namnet är kvar från Robotstyrning, så att sparade robotar och
+/// inställningar följer med över namnbytet.
+pub(crate) fn config_dir() -> Option<std::path::PathBuf> {
+    directories::ProjectDirs::from("se", "robot-control", "robotstyrning").map(|d| d.config_dir().to_path_buf())
+}
+
 fn max_output_path() -> Option<std::path::PathBuf> {
-    directories::ProjectDirs::from("se", "robot-control", "robotstyrning")
-        .map(|d| d.config_dir().join("max.json"))
+    config_dir().map(|d| d.join("max.json"))
 }
 
 /// Förarens Max (bara farten), 0.30 om inget sparats.
@@ -950,8 +1008,7 @@ fn save_max_output(v: f32) {
 }
 
 fn known_robots_path() -> Option<std::path::PathBuf> {
-    directories::ProjectDirs::from("se", "robot-control", "robotstyrning")
-        .map(|d| d.config_dir().join("kanda_robotar.json"))
+    config_dir().map(|d| d.join("kanda_robotar.json"))
 }
 
 fn load_known_robots() -> Vec<String> {
