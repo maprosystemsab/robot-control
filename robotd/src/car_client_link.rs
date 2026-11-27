@@ -161,6 +161,12 @@ const RESEND_ACTIVE: Duration = Duration::from_millis(100);
 const RESEND_IDLE: Duration = Duration::from_secs(1);
 /// Hur ofta tillstånd och VESC-status hämtas från styrkortet.
 const POLL_INTERVAL: Duration = Duration::from_millis(500);
+/// Hur ofta `CMD_HEARTBEAT` skickas medan länken hålls, samma takt som RControlStation.
+/// I vila går körkommandona bara en gång per sekund (`RESEND_IDLE`), vilket inte räcker
+/// för styrkortets heartbeat på 1,0 s (grundvärdet från firmware 31.1): kortet skulle lösa
+/// ut gång på gång medan föraren bara är ansluten. robotd:s egen vakthund stoppar roboten
+/// när förarens kommandon uteblir, så det här säger bara att robotd lever.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_millis(300);
 const SCAN_TIMEOUT: Duration = Duration::from_secs(3);
 /// Svarar inte kortet på pingen inom så här lång tid har det äldre firmware
 /// (före 30.4) — då används CAN-statuslistan i stället.
@@ -382,6 +388,8 @@ async fn session(
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     let mut poll = tokio::time::interval(POLL_INTERVAL);
     poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    let mut hjartslag = tokio::time::interval(HEARTBEAT_INTERVAL);
+    hjartslag.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // Styrvinkeln: varannan poll (1 s). `angle_asked` räknas ner när svar kommer.
     let mut poll_count: u32 = 0;
     let mut angle_unanswered: u32 = 0;
@@ -390,6 +398,9 @@ async fn session(
     loop {
         tokio::select! {
             _ = tick.tick() => {}
+            _ = hjartslag.tick() => {
+                link.send_raw_payload(&vesc_can::make_heartbeat(p.car_id)).await?;
+            }
             _ = poll.tick() => {
                 link.send_raw_payload(&vesc_can::make_state_request(p.car_id)).await?;
                 link.send_raw_payload(&vesc_can::make_vesc_status_request(p.car_id)).await?;

@@ -186,6 +186,16 @@ pub fn make_state_request(car_id: u8) -> Vec<u8> {
     vec![car_id, CMD_GET_STATE]
 }
 
+/// `CMD_HEARTBEAT` (89): "föraren är kvar". RControlStation skickar det var 300:e ms till
+/// varje ansluten bil, och Car_Client skickar det vidare till styrkortet. Från firmware
+/// 30.33 håller bara det här och körkommandona kortets heartbeat vid liv (inte
+/// tillståndsfrågor eller terminalkommandon), och från 31.1 är grundvärdet 1,0 s.
+pub const CMD_HEARTBEAT: u8 = 89;
+
+pub fn make_heartbeat(car_id: u8) -> Vec<u8> {
+    vec![car_id, CMD_HEARTBEAT]
+}
+
 /// Svarsformat enligt `commands.c` (CMD_GET_STATE): `[id][120][fw maj][fw min]`
 /// och sedan float32 som i32 big-endian (värde*skala): roll, pitch, yaw,
 /// accel×3, gyro×3, mag×3, px, py, speed (1e6), v_in (1e6), temp_mos (1e6),
