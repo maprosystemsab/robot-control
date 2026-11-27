@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Ritar SentinAnt Lites logga och ikon ur SentinAnts: samma bilder, med ett grönt "Lite"
-snett över.
+"""Ritar SentinAnt Lites logga och ikon ur SentinAnts: samma bilder, med ett tunt grönt
+"Lite" snett över.
 
     python3 client/assets/gor_bilder.py [MAPP_FÖR_PROVBILD]
 
@@ -8,50 +8,72 @@ Läser sentinant_logga.png och sentinant_ikon.png (kopior av SentinAnts client/a
 och ikon.png) och skriver logga.png, ikon.png (256 px) och ikon.ico (16–256 px) i samma mapp.
 Med en mapp som argument sparas också ikon_storlekar.png där: ikonen i 256, 48 och 32 px
 bredvid varandra. Kör igen om SentinAnts logga eller ikon ändras. Kräver PIL (python3-pil)
-och typsnittet DejaVu Sans Bold, som är det loggan är satt i.
+och typsnitten DejaVu Sans Bold och Ubuntu (båda följer med Ubuntu).
 
-Ikonen ritas för sig i varje storlek (inte bara förminskad), så att ordet går att läsa även
-i 32 och 48 px. I 16 och 24 px får ordet inte plats: där är märket en grön snedrand.
+Ordet är satt i en tunn snittvikt (Ubuntu Light Italic) med en hårfin mörk kant, så att
+loggan syns mellan strecken. Läget, vinkeln och storleken bestäms av en mall: ordet i
+loggans eget feta typsnitt (DejaVu Sans Bold), som aldrig ritas ut. Det tunna ordet får
+samma höjd och bredd som mallen och läggs på samma plats.
+
+Ikonen ritas för sig i varje storlek (inte bara förminskad). I 64, 48 och 32 px är
+snittvikten stegvis kraftigare, annars försvinner strecken. I 16 och 24 px får ordet inte
+plats: där är märket en grön snedrand.
 """
 import io
 import os
 import struct
 import sys
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 HAR = os.path.dirname(os.path.abspath(__file__))
-TYPSNITT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+MALLSNITT = '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf'
+UBUNTU = '/usr/share/fonts/truetype/ubuntu/'
+TUNN, NORMAL, HALVFET, FET = (UBUNTU + n for n in ('Ubuntu-LI.ttf', 'Ubuntu-RI.ttf', 'Ubuntu-MI.ttf', 'Ubuntu-BI.ttf'))
 GRON = (64, 214, 100, 255)      # ordet "Lite", i loggan och i ikonen
-KANT = (4, 22, 10, 255)         # mörk kant runt ordet, så att det går att läsa över vitt och orange
+KANT = (4, 22, 10, 255)         # hårfin mörk kant, så att ordet går att läsa över vitt och orange
 STORLEKAR = [16, 24, 32, 48, 64, 128, 256]
+ORD = 'Lite'
 
 
-def text(ord_, storlek, farg, kant=0, mellan=0, lutning=0.2):
-    """Ordet som eget lager, kursiverat (skjuvat). Lagren får samma storlek oavsett kant,
-    så att flera lager av samma ord passar på varandra."""
-    font = ImageFont.truetype(TYPSNITT, storlek)
+def rita_ord(typsnitt, storlek, mellan, farg, kant=0):
+    """Ordet på en egen duk, med `mellan` bildpunkter extra mellan bokstäverna."""
+    font = ImageFont.truetype(typsnitt, storlek)
     rita = ImageDraw.Draw(Image.new('RGBA', (8, 8)))
-    bredder = [rita.textlength(c, font=font) for c in ord_]
+    bredder = [rita.textlength(c, font=font) for c in ORD]
     upp, ned = font.getmetrics()
     marginal = storlek // 2
-    bild = Image.new('RGBA', (int(sum(bredder) + mellan * (len(ord_) - 1)) + 2 * marginal, upp + ned + 2 * marginal), (0, 0, 0, 0))
+    bild = Image.new('RGBA', (int(sum(bredder) + mellan * (len(ORD) - 1)) + 2 * marginal, upp + ned + 2 * marginal), (0, 0, 0, 0))
     rita = ImageDraw.Draw(bild)
     x = marginal
-    for tecken, bredd in zip(ord_, bredder):
+    for tecken, bredd in zip(ORD, bredder):
         rita.text((x, marginal), tecken, font=font, fill=farg, stroke_width=kant, stroke_fill=farg)
         x += bredd + mellan
+    return bild
+
+
+def mall(storlek, mellan, lutning=0.2):
+    """Mallen: ordet i loggans feta typsnitt, kursiverat (skjuvat). Ger duken det ligger på."""
+    bild = rita_ord(MALLSNITT, storlek, mellan, GRON)
     return bild.transform(bild.size, Image.AFFINE, (1, lutning, -lutning * bild.height / 2, 0, 1, 0), resample=Image.BICUBIC)
 
 
-def marke(storlek, kant, mellan, vinkel, skugga):
-    """Det gröna ordet med mörk kant, vridet, och (om skugga > 0) en mjuk mörk skugga bakom."""
-    vrid = lambda lager: lager.rotate(vinkel, expand=True, resample=Image.BICUBIC)
-    ord_ = Image.alpha_composite(vrid(text('Lite', storlek, KANT, kant, mellan)), vrid(text('Lite', storlek, GRON, 0, mellan)))
-    if skugga:
-        moln = Image.new('RGBA', ord_.size, (0, 0, 0, 0))
-        moln.putalpha(ord_.split()[3].filter(ImageFilter.GaussianBlur(skugga)).point(lambda a: min(255, a * 2)))
-        ord_ = Image.alpha_composite(moln, ord_)
-    return ord_
+def tunt_ord(typsnitt, mallen, kant):
+    """Ordet i `typsnitt` på en duk som mallens, med samma höjd, bredd och läge som mallens ord."""
+    ruta = mallen.getbbox()
+    bredd, hojd = ruta[2] - ruta[0], ruta[3] - ruta[1]
+    prov = rita_ord(typsnitt, 400, 0, GRON).getbbox()
+    storlek = round(400 * hojd / (prov[3] - prov[1]))
+    utan = rita_ord(typsnitt, storlek, 0, GRON).getbbox()
+    mellan = (bredd - (utan[2] - utan[0])) / (len(ORD) - 1)
+    ordet = rita_ord(typsnitt, storlek, mellan, GRON)
+    r = ordet.getbbox()
+    flytt = (round((ruta[0] + ruta[2] - r[0] - r[2]) / 2), round((ruta[1] + ruta[3] - r[1] - r[3]) / 2))
+    ut = Image.new('RGBA', mallen.size, (0, 0, 0, 0))
+    for lager in ([rita_ord(typsnitt, storlek, mellan, KANT, kant)] if kant else []) + [ordet]:
+        hel = Image.new('RGBA', mallen.size, (0, 0, 0, 0))
+        hel.paste(lager, flytt, lager)
+        ut = Image.alpha_composite(ut, hel)
+    return ut
 
 
 def mitt_pa(bas, lager, dx=0, dy=0):
@@ -62,7 +84,8 @@ def mitt_pa(bas, lager, dx=0, dy=0):
 
 def logga():
     bas = Image.open(os.path.join(HAR, 'sentinant_logga.png')).convert('RGBA')
-    mitt_pa(bas, marke(storlek=236, kant=11, mellan=14, vinkel=12, skugga=10), dy=-4).convert('RGB').save(os.path.join(HAR, 'logga.png'), optimize=True)
+    ordet = tunt_ord(TUNN, mall(236, 14), kant=3).rotate(12, expand=True, resample=Image.BICUBIC)
+    mitt_pa(bas, ordet, dy=-4).convert('RGB').save(os.path.join(HAR, 'logga.png'), optimize=True)
 
 
 def ikon(sida):
@@ -72,11 +95,14 @@ def ikon(sida):
     b = sida * k
     bas = grund.resize((b, b), Image.LANCZOS)
     if sida >= 32:
-        # Mindre ikon: större ord och kraftigare kant i förhållande till ytan.
-        andel, kant, vinkel = {32: (0.40, 0.045, 20), 48: (0.39, 0.04, 21)}.get(sida, (0.38, 0.032, 22))
-        ord_ = marke(storlek=int(b * andel), kant=max(1, int(b * kant)), mellan=0, vinkel=vinkel, skugga=int(b * 0.02))
-        ord_ = ord_.crop(ord_.getbbox())
-        bas = mitt_pa(bas, ord_, dy=int(b * 0.06))
+        # Mallens storlek och vinkel per ikonstorlek, och snittvikten: tunn som i loggan i de
+        # stora, stegvis kraftigare ned till 32 px, där tunna streck annars inte syns alls.
+        andel, vinkel, typsnitt, kant = {32: (0.40, 20, FET, 0.012), 48: (0.39, 21, HALVFET, 0.011), 64: (0.38, 22, NORMAL, 0.010)}.get(sida, (0.38, 22, TUNN, 0.008))
+        mallen = mall(int(b * andel), 0)
+        ordet = tunt_ord(typsnitt, mallen, max(1, round(b * kant))).rotate(vinkel, expand=True, resample=Image.BICUBIC)
+        # Mallens ord (vridet) hamnar mitt på ikonen, något under mitten; det tunna ordet följer med.
+        r = mallen.rotate(vinkel, expand=True, resample=Image.BICUBIC).getbbox()
+        bas = mitt_pa(bas, ordet, dx=round(ordet.width / 2 - (r[0] + r[2]) / 2), dy=round(ordet.height / 2 - (r[1] + r[3]) / 2) + int(b * 0.06))
     else:
         # 16 och 24 px: en grön snedrand med mörk kant, klippt till ikonens form.
         rand = Image.new('RGBA', (b, b), (0, 0, 0, 0))
