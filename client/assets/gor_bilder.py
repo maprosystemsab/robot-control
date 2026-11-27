@@ -13,7 +13,9 @@ och typsnittet DejaVu Sans Bold, som är det loggan är satt i.
 Ikonen ritas för sig i varje storlek (inte bara förminskad), så att ordet går att läsa även
 i 32 och 48 px. I 16 och 24 px får ordet inte plats: där är märket en grön snedrand.
 """
+import io
 import os
+import struct
 import sys
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
@@ -86,11 +88,34 @@ def ikon(sida):
     return bas.resize((sida, sida), Image.LANCZOS) if k > 1 else bas
 
 
+def ico(ikoner):
+    """ikon.ico för Windows, uppbyggd som SentinAnts: de små storlekarna som vanliga
+    bitmappar (det äldre delar av Windows och NSIS väntar sig) och 256 px som PNG."""
+    def bild(sida, form):
+        # PIL skriver en ico med en enda storlek; bilddatat plockas ur den.
+        buf = io.BytesIO()
+        ikoner[sida].save(buf, format='ICO', sizes=[(sida, sida)], bitmap_format=form)
+        d = buf.getvalue()
+        post = bytearray(d[6:22])
+        langd, plats = struct.unpack('<II', post[8:16])
+        return post, d[plats:plats + langd]
+    delar = [bild(s, 'png' if s >= 256 else 'bmp') for s in STORLEKAR]
+    ut = bytearray(struct.pack('<HHH', 0, 1, len(delar)))
+    plats = 6 + 16 * len(delar)
+    for post, data in delar:
+        post[12:16] = struct.pack('<I', plats)
+        ut += post
+        plats += len(data)
+    for _, data in delar:
+        ut += data
+    open(os.path.join(HAR, 'ikon.ico'), 'wb').write(ut)
+
+
 def main():
     logga()
     ikoner = {s: ikon(s) for s in STORLEKAR}
     ikoner[256].save(os.path.join(HAR, 'ikon.png'), optimize=True)
-    ikoner[256].save(os.path.join(HAR, 'ikon.ico'), sizes=[(s, s) for s in STORLEKAR], append_images=[ikoner[s] for s in STORLEKAR if s != 256])
+    ico(ikoner)
     print('Skrev logga.png, ikon.png och ikon.ico i', HAR)
     if len(sys.argv) > 1:
         # Provbild: 256, 48 och 32 px bredvid varandra, på mörk och ljus botten.
