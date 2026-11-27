@@ -33,7 +33,11 @@ if [ ! -f "Cargo.toml" ] || [ ! -d "client" ]; then
 fi
 
 echo "--- Installerar systempaket ---"
-sudo apt-get update
+# Paketlistan får inte stoppa installationen: på en dator som redan har paketen behövs den
+# inte, och ett hängt nät (sett på Mats dator 2026-11-27: apt-get update stod still i tolv
+# minuter) eller ett trasigt extra förråd ska inte hindra uppdateringen av programmet.
+sudo timeout 300 apt-get -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 -o Acquire::Retries=1 update \
+  || echo "VARNING: paketlistan gick inte att uppdatera (nätet eller ett extra förråd). Fortsätter med de paket som finns."
 sudo apt-get install -y \
   build-essential \
   pkg-config \
