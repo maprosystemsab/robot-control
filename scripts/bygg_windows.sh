@@ -61,7 +61,7 @@ INSTALLATION="$UT/SentinAnt-Lite-installation-${VERSION/+/-}.exe"
 makensis -V2 -INPUTCHARSET UTF8 \
   -DVERSION="$VERSION" -DVERSION4="$VER3.0" \
   -DPROGRAM="$PWD/$PROGRAM" -DUTFIL="$PWD/$INSTALLATION" \
-  -DIKON="$PWD/client/assets/ikon.ico" -DTREDJEPART="$PWD/TREDJEPART.md" \
+  -DIKON="$PWD/client/assets/ikon.ico" -DTREDJEPART="$PWD/TREDJEPART.md" -DLICENS="$PWD/LICENS.md" \
   client/windows/installation.nsi
 echo "  $PROGRAM ($(du -h "$PROGRAM" | cut -f1))"
 echo "  $INSTALLATION ($(du -h "$INSTALLATION" | cut -f1))"

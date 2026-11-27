@@ -1,6 +1,6 @@
 ; SentinAnt Lite för Windows: installationsfilen (NSIS). Byggs av scripts/bygg_windows.sh:
 ;   makensis -INPUTCHARSET UTF8 -DVERSION=… -DVERSION4=… -DPROGRAM=…/sentinant-lite.exe -DUTFIL=… \
-;            -DIKON=…/ikon.ico -DTREDJEPART=…/TREDJEPART.md installation.nsi
+;            -DIKON=…/ikon.ico -DTREDJEPART=…/TREDJEPART.md -DLICENS=…/LICENS.md installation.nsi
 ;
 ; Samma installation som SentinAnts (autorobot, client/windows/installation.nsi), med
 ; SentinAnt Lites namn. Installerar per användare, utan administratörsrätt, i
@@ -59,6 +59,7 @@ Section "SentinAnt Lite"
     Rename "$INSTDIR\sentinant-lite.exe" "$INSTDIR\sentinant-lite-gammal-installation.exe"
   File "/oname=sentinant-lite.exe" "${PROGRAM}"
   File "/oname=TREDJEPART.txt" "${TREDJEPART}"
+  File "/oname=LICENS.txt" "${LICENS}"
   WriteUninstaller "$INSTDIR\avinstallera.exe"
 
   CreateShortcut "$SMPROGRAMS\SentinAnt Lite.lnk" "$INSTDIR\sentinant-lite.exe"
@@ -90,6 +91,7 @@ Section "Uninstall"
   Delete "$INSTDIR\sentinant-lite-ny*"
   Delete "$INSTDIR\sentinant-lite-gammal*"
   Delete "$INSTDIR\TREDJEPART.txt"
+  Delete "$INSTDIR\LICENS.txt"
   Delete "$INSTDIR\avinstallera.exe"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\SentinAnt Lite.lnk"

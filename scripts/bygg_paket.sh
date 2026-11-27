@@ -61,6 +61,7 @@ Biblioteken med öppen källkod som är inbyggda i programmet, och deras license
 står i TREDJEPART.md i samma mapp.
 COPYRIGHT
 install -m 644 TREDJEPART.md "$R/usr/share/doc/sentinant-lite/TREDJEPART.md"
+install -m 644 LICENS.md "$R/usr/share/doc/sentinant-lite/LICENS.md"
 mkdir -p "$R/DEBIAN"
 cat > "$R/DEBIAN/control" <<CONTROL
 Package: sentinant-lite
