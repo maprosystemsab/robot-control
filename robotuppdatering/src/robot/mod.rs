@@ -40,6 +40,11 @@ const STEG_ANTAL: u8 = 8;
 const FARSK: Duration = Duration::from_secs(5);
 /// Så länge väntas på att kortet ska svara efter en skrivning.
 const VANTA_PA_KORTET: Duration = Duration::from_secs(if cfg!(test) { 2 } else { 120 });
+/// Så länge får hinder ligga kvar efter att kortet startat om (utläsningen stannar det)
+/// innan de avbryter uppdateringen. Direkt efter omstarten är batterispänningen 0 tills
+/// VESC:arna hunnit svara, och "stått still"-tiden börjar om: sett på mk1 2026-11-27, där
+/// uppdateringen avbröts med "batteriet under 20 %" fast det var laddat.
+const SPARRFRIST: Duration = Duration::from_millis(if cfg!(test) { 600 } else { 30_000 });
 /// Så länge får kortet på sig att börja rapportera nödstoppet efter start.
 const VANTA_PA_NODSTOPP: Duration = Duration::from_secs(if cfg!(test) { 1 } else { 20 });
 /// Så ofta ses det efter om verktygen och ST-Linken finns (för statusen).
@@ -480,6 +485,17 @@ impl Delat {
         None
     }
 
+    /// Väntar tills robotd inte rapporterar några hinder längre, högst `langst`.
+    fn vanta_ut_sparrar(&self, langst: Duration) {
+        let slut = Instant::now() + langst;
+        while Instant::now() < slut {
+            if self.inre.lock().unwrap().bild.sparrar.is_empty() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+    }
+
     /// Som [`Self::vanta_pa_kortet`], men väntar också tills robotd vet om kortet rapporterar
     /// de tillval som går att se (efter ett uppehåll tar det några sekunder). Används före
     /// skrivningen, så att spärrarna inte faller på att uppgiften bara inte hunnit komma.
@@ -625,6 +641,10 @@ impl Delat {
                 return Err(orort("Styrkortet svarar inte efter säkerhetskopieringen.".into()));
             }
         }
+        // Hinder som beror på omstarten (batterispänningen inte läst än, still-tiden omräknad)
+        // går över av sig själva: vänta ut dem en stund. Ligger de kvar avbryts uppdateringen
+        // som förut, och ingenting har skrivits.
+        self.vanta_ut_sparrar(SPARRFRIST);
         // Den här bilden (kortet har svarat en stund) avgör vad som ska krävas av den nya
         // firmwaren efter skrivningen: bilden direkt efter omstarten gör det inte, för då
         // vet robotd ännu inte vad kortet rapporterar.
